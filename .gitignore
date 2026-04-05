@@ -1,0 +1,26 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+
+# Datasets
+# It's best practice not to commit raw data (like FashionMNIST) to Git
+data/
+
+# Model weights and checkpoints
+# Ignore the directory and any specific weight files to prevent large binary uploads
+weights/
+*.pth
+*.pt
+
+# Weights & Biases local logs
+# Wandb creates a local folder for sync data which shouldn't be tracked
+wandb/
+
+# IDE and OS specific files (optional but recommended)
+.vscode/
+.DS_Store

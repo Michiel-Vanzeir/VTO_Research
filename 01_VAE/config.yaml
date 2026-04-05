@@ -1,0 +1,6 @@
+# 01_VAE/config.yaml
+latent_dim: 64
+batch_size: 128
+epochs: 50
+learning_rate: 0.001
+beta: 1.0

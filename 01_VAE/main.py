@@ -36,7 +36,7 @@ def main():
     trainer.fit()
 
     # Saving the weights
-    save_path = f"weights/VAE_GAN/vae_z{config.latent_dim}_e{config.epochs}_lr{config.learning_rate}_id{run.id}.pth"
+    save_path = f"weights/VAE/vae_z{config.latent_dim}_e{config.epochs}_lr{config.learning_rate}_id{run.id}.pth"
     torch.save(vae.state_dict(), save_path)
     wandb.save(save_path)
     print("All weights are saved locally and in the cloud!")

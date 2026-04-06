@@ -6,8 +6,9 @@ import torch
 def get_fashion_mnist_loader(batch_size=128, img_size=32):
     transform = transforms.Compose([
         transforms.Resize(img_size),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,),(0.5,)) # Scales [0, 1] -> [-1, 1]
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),                
+        transforms.Normalize((0.5,), (0.5,)) # Scales [0, 1] -> [-1, 1]
     ])
 
     trainset = torchvision.datasets.FashionMNIST(

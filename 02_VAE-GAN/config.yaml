@@ -1,0 +1,11 @@
+# 01_VAE/config.yaml
+latent_dim: 40
+batch_size: 128
+epochs: 100
+warmup_epochs: 15
+learning_rates:
+  encoder_lr: 0.0003
+  discriminator_lr: 0.0001
+  decoder_lr: 0.0003
+beta: 0.5
+gamma: 30.0

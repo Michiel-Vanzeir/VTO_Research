@@ -1,0 +1,5 @@
+# 03_DDPM/config.yaml
+timesteps: 1000
+epochs: 800
+batch_size: 32
+learning_rate: 2e-4 

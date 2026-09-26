@@ -9,12 +9,14 @@
 #
 # Runs that already have outputs/<model>_<pair>/run_config.json are skipped
 # (so resubmitting after a partial failure only redoes what's missing). A
-# failed run does not block the analysis node -- it just gets skipped there.
+# failed run is retried $RETRIES times (post.sh); if it still fails it does
+# not block the analysis node -- it just gets skipped there.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "$PROJECT_ROOT/cluster"
 
 MODELS="${MODELS:-catvton ootd idm}"
+RETRIES=2  # a failed run is resubmitted up to this many times before being given up on
 # Per-model minimum GPU memory (MB) and job RAM. CatVTON (512x384) and
 # OOTDiffusion (768x1024) both ran on an 8GB laptop GPU; IDM-VTON is SDXL-sized
 # (two 2.6B-param UNets in fp16) and needs a 24GB-class card.
@@ -45,7 +47,8 @@ while read -r pair person cloth; do
     cat >> "$DAG" <<EOF
 JOB $node vton.sub
 VARS $node model="$model" pair="$pair" person="$person" cloth="$cloth" gpumem="${GPUMEM[$model]}" mem="${MEM[$model]}"
-SCRIPT POST $node /bin/true
+RETRY $node $RETRIES
+SCRIPT POST $node post.sh \$RETURN \$RETRY $RETRIES
 EOF
     nodes+=("$node")
   done

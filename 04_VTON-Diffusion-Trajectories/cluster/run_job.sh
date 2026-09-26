@@ -21,8 +21,18 @@ PERSON_IMG="$DATA_ROOT/image/$PERSON.jpg"
 CLOTH_IMG="$DATA_ROOT/cloth/$CLOTH.jpg"
 
 echo "[run_job] host=$(hostname) run=$RUN_NAME person=$PERSON cloth=$CLOTH"
-if ! nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader; then
-  echo "[run_job] FATAL: no GPU visible to this job (check request_gpus/requirements in vton.sub)" >&2
+# Condor jobs get a minimal PATH and some GPU nodes don't have nvidia-smi on
+# it, so the real check is whether torch (what the models use) sees a GPU.
+export PATH="$PATH:/usr/bin:/usr/local/bin:/usr/local/nvidia/bin"
+echo "[run_job] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
+command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader || true
+if ! "$VENV_CATVTON/bin/python" -c "
+import sys, torch
+if not torch.cuda.is_available():
+    sys.exit(1)
+p = torch.cuda.get_device_properties(0)
+print(f'[run_job] torch sees {p.name}, {p.total_memory / 2**30:.1f} GiB')"; then
+  echo "[run_job] FATAL: torch sees no GPU on $(hostname) (check request_gpus/requirements in vton.sub)" >&2
   exit 1
 fi
 

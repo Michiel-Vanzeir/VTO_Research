@@ -65,6 +65,7 @@ from src.unet_hacked_garmnet import UNet2DConditionModel as UNet2DConditionModel
 from src.unet_hacked_tryon import UNet2DConditionModel  # noqa: E402
 
 from diffusers import AutoencoderKL, DDIMScheduler, DDPMScheduler  # noqa: E402
+from huggingface_hub import snapshot_download  # noqa: E402
 from torchvision import transforms  # noqa: E402
 from transformers import (  # noqa: E402
     AutoTokenizer,
@@ -137,17 +138,31 @@ class CaptureStep:
         return out if return_dict else (out.prev_sample,)
 
 
+def local_model_dir() -> str:
+    """Local snapshot folder of MODEL_ID in the HF cache (fetched by
+    cluster/setup.sh). Everything loads from this path rather than the repo
+    id: diffusers 0.25's DiffusionPipeline.from_pretrained calls the Hub API
+    (model_info) for a repo id even when HF_HUB_OFFLINE=1 is set, which
+    crashes on offline condor execute nodes. A local path never hits the Hub."""
+    try:
+        return snapshot_download(MODEL_ID, local_files_only=True)
+    except Exception:
+        return snapshot_download(MODEL_ID)  # not cached yet and online: fetch it
+
+
 def build_pipeline(device: str) -> TryonPipeline:
     dtype = torch.float16
-    unet = UNet2DConditionModel.from_pretrained(MODEL_ID, subfolder="unet", torch_dtype=dtype)
-    unet_encoder = UNet2DConditionModel_ref.from_pretrained(MODEL_ID, subfolder="unet_encoder", torch_dtype=dtype)
-    image_encoder = CLIPVisionModelWithProjection.from_pretrained(MODEL_ID, subfolder="image_encoder", torch_dtype=dtype)
-    text_encoder_one = CLIPTextModel.from_pretrained(MODEL_ID, subfolder="text_encoder", torch_dtype=dtype)
-    text_encoder_two = CLIPTextModelWithProjection.from_pretrained(MODEL_ID, subfolder="text_encoder_2", torch_dtype=dtype)
-    tokenizer_one = AutoTokenizer.from_pretrained(MODEL_ID, subfolder="tokenizer", use_fast=False)
-    tokenizer_two = AutoTokenizer.from_pretrained(MODEL_ID, subfolder="tokenizer_2", use_fast=False)
-    vae = AutoencoderKL.from_pretrained(MODEL_ID, subfolder="vae", torch_dtype=torch.float32)
-    ddpm = DDPMScheduler.from_pretrained(MODEL_ID, subfolder="scheduler")
+    model_dir = local_model_dir()
+    print(f"[idm] loading weights from {model_dir}")
+    unet = UNet2DConditionModel.from_pretrained(model_dir, subfolder="unet", torch_dtype=dtype)
+    unet_encoder = UNet2DConditionModel_ref.from_pretrained(model_dir, subfolder="unet_encoder", torch_dtype=dtype)
+    image_encoder = CLIPVisionModelWithProjection.from_pretrained(model_dir, subfolder="image_encoder", torch_dtype=dtype)
+    text_encoder_one = CLIPTextModel.from_pretrained(model_dir, subfolder="text_encoder", torch_dtype=dtype)
+    text_encoder_two = CLIPTextModelWithProjection.from_pretrained(model_dir, subfolder="text_encoder_2", torch_dtype=dtype)
+    tokenizer_one = AutoTokenizer.from_pretrained(model_dir, subfolder="tokenizer", use_fast=False)
+    tokenizer_two = AutoTokenizer.from_pretrained(model_dir, subfolder="tokenizer_2", use_fast=False)
+    vae = AutoencoderKL.from_pretrained(model_dir, subfolder="vae", torch_dtype=torch.float32)
+    ddpm = DDPMScheduler.from_pretrained(model_dir, subfolder="scheduler")
     scheduler = DDIMScheduler.from_config(ddpm.config)
 
     for m in (unet, unet_encoder, image_encoder, text_encoder_one, text_encoder_two, vae):
@@ -155,7 +170,7 @@ def build_pipeline(device: str) -> TryonPipeline:
         m.eval()
 
     pipe = TryonPipeline.from_pretrained(
-        MODEL_ID,
+        model_dir,
         unet=unet,
         vae=vae,
         feature_extractor=CLIPImageProcessor(),

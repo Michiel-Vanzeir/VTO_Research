@@ -23,6 +23,14 @@ declare -A MEM=([catvton]=16GB [ootd]=24GB [idm]=40GB)
 
 mkdir -p logs generated
 DAG=generated/trajectories.dag
+# A second DAGMan on the same DAG file exits immediately (lock file), and
+# rewriting the DAG under a running one is asking for trouble -- refuse.
+if [ -z "${DRY_RUN:-}" ] && command -v condor_q >/dev/null \
+   && condor_q "$USER" -constraint 'JobUniverse == 7' -af Args 2>/dev/null | grep -q "trajectories.dag"; then
+  echo "[submit] a trajectories DAG is still running (condor_q -dag -nobatch)." >&2
+  echo "         wait for it to finish, or stop it with condor_rm <dagman job id>, then resubmit." >&2
+  exit 1
+fi
 : > "$DAG"
 nodes=()
 while read -r pair person cloth; do

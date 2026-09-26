@@ -1,0 +1,7 @@
+# <pair name>        <person stem>  <cloth stem>   (VITON-HD test split)
+# Every model is run on every pair; run dirs are outputs/<model>_<pair name>.
+pair1_solid         02527_00       00006_00
+pair2_logo          02116_00       00126_00
+pair3_stripe        13758_00       00286_00
+pair4_print         14674_00       00205_00
+pair5_structural    11158_00       00034_00

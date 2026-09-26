@@ -1,0 +1,15 @@
+# Everything below is (re)created by cluster/setup.sh or by running jobs.
+.venv/
+.venv-ootd/
+.venv-idm/
+.hf_cache/
+.uv_cache/
+.uv_python/
+.tools/
+data/
+repos/
+outputs/
+cluster/logs/*
+!cluster/logs/.gitkeep
+cluster/generated/
+__pycache__/

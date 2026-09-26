@@ -1,0 +1,30 @@
+# One trajectory-capture run. Not submitted directly: submit.sh generates a
+# DAG that instantiates this once per (model, pair) with VARS for
+# model/pair/person/cloth and the per-model GPU/RAM needs, plus a final
+# analysis node (analyze.sub).
+universe   = vanilla
+executable = run_job.sh
+arguments  = $(model) $(pair) $(person) $(cloth)
+
+# Shared filesystem: the job reads code, envs, weights and data in place and
+# writes straight into outputs/ -- nothing is transferred.
+should_transfer_files = NO
+
+request_gpus   = 1
+request_cpus   = 4
+request_memory = $(mem)
+request_disk   = 10GB
+
+# Minimum GPU memory per model (set by submit.sh). Written against both GPU
+# ClassAd spellings in use (older CUDA* and newer GPUs_*); whichever this
+# pool doesn't advertise evaluates UNDEFINED and drops out of the ||.
+requirements = (TARGET.CUDAGlobalMemoryMb >= $(gpumem)) || (TARGET.GPUs_GlobalMemoryMb >= $(gpumem))
+
+# ESAT asks jobs to declare a walltime (seconds); 4h is generous -- a 50-step
+# IDM-VTON run is ~10-20 min on a 24GB card.
++RequestWalltime = 14400
+
+output = logs/$(model)_$(pair).out
+error  = logs/$(model)_$(pair).err
+log    = logs/$(model)_$(pair).log
+queue

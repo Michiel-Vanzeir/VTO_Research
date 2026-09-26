@@ -1,0 +1,20 @@
+# CatVTON + all analysis scripts (metrics.py, pose.py, viz.py, compare_trajectories.py).
+# Mirrors the local .venv these runs were developed in; torch is pinned
+# separately by setup.sh (from $TORCH_INDEX_URL) so all three envs share one
+# CUDA build. CatVTON's own requirements.txt tracks diffusers git main, so
+# pin the exact commit that worked.
+diffusers @ git+https://github.com/huggingface/diffusers.git@0a0c57d3889e0184784ff507e1d795e2a3719be6
+transformers==5.15.1
+accelerate==1.14.0
+huggingface-hub==1.28.0
+peft==0.20.0
+safetensors==0.8.0
+numpy==2.2.6
+scipy==1.15.3
+scikit-image==0.24.0
+opencv-python-headless==4.10.0.84
+pillow==12.3.0
+matplotlib==3.9.1
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
+tqdm==4.70.0

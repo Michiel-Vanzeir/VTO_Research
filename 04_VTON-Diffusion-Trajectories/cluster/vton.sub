@@ -18,7 +18,14 @@ request_disk   = 10GB
 # Minimum GPU memory per model (set by submit.sh). Written against both GPU
 # ClassAd spellings in use (older CUDA* and newer GPUs_*); whichever this
 # pool doesn't advertise evaluates UNDEFINED and drops out of the ||.
-requirements = (TARGET.CUDAGlobalMemoryMb >= $(gpumem)) || (TARGET.GPUs_GlobalMemoryMb >= $(gpumem))
+#
+# BadHosts: nodes that advertise a GPU but where torch sees none (no working
+# driver) -- jobs there fail instantly, and DAG retries tend to land on the
+# same node again. Add hostnames here (comma-separated, no quotes) if
+# run_job.sh reports "torch sees no GPU".
+BadHosts = psi-test2.esat.kuleuven.be
+requirements = ((TARGET.CUDAGlobalMemoryMb >= $(gpumem)) || (TARGET.GPUs_GlobalMemoryMb >= $(gpumem))) \
+               && !stringListMember(TARGET.Machine, "$(BadHosts)")
 
 # ESAT asks jobs to declare a walltime (seconds); 4h is generous -- a 50-step
 # IDM-VTON run is ~10-20 min on a 24GB card.

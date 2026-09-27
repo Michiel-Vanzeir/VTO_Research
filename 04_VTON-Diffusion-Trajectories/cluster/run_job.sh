@@ -1,7 +1,8 @@
 #!/bin/bash
 # HTCondor executable: one invocation = one trajectory-capture run, followed
-# by its video/contact sheet. Metrics + cross-model comparison happen once
-# all runs are done, in analyze.sh.
+# by its video/contact sheet and per-run metrics (on the GPU node, where
+# OpenPose is fast). The cross-model comparison runs once all runs are done,
+# in analyze.sh.
 #
 # Usage: run_job.sh <catvton|ootd|idm> <pair name> <person stem> <cloth stem>
 #   -> outputs/<model>_<pair name>/
@@ -60,4 +61,5 @@ case "$MODEL" in
 esac
 
 "$VENV_CATVTON/bin/python" scripts/viz.py --run-dir "outputs/$RUN_NAME"
+"$VENV_CATVTON/bin/python" scripts/metrics.py --run-dir "outputs/$RUN_NAME"
 echo "[run_job] done: outputs/$RUN_NAME"

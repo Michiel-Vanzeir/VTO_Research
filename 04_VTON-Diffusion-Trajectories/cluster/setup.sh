@@ -151,9 +151,9 @@ from src.tryon_pipeline import StableDiffusionXLInpaintPipeline
 from src.unet_hacked_tryon import UNet2DConditionModel
 print('  .venv-idm  ok  torch', torch.__version__, 'diffusers', diffusers.__version__)"
   missing=0
-  while read -r pair person cloth; do
+  while read -r pair _category person cloth; do
     [[ -z "$pair" || "$pair" == \#* ]] && continue
-    for f in "image/$person.jpg" "cloth/$cloth.jpg" "agnostic-mask-catvton/$person.png" \
+    for f in "image/$person.jpg" "cloth/$cloth.jpg" "cloth-mask/$cloth.jpg" "agnostic-mask-catvton/$person.png" \
              "agnostic-mask/${person}_mask.png" "image-densepose/$person.jpg" \
              "image-parse-v3/$person.png" "openpose_json/${person}_keypoints.json"; do
       [ -f "$DATA_ROOT/$f" ] || { echo "  MISSING $DATA_ROOT/$f"; missing=1; }

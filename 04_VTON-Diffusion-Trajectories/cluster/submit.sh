@@ -7,8 +7,12 @@
 #   MODELS="idm" bash cluster/submit.sh         # subset of models
 #   FORCE=1 bash cluster/submit.sh              # also redo runs that already finished
 #   DRY_RUN=1 bash cluster/submit.sh            # write the DAG, don't submit
+#   FORKS=1 bash cluster/submit.sh              # fork experiment instead (step 3): the first
+#                                               # FORK_PAIRS_PER_CATEGORY pairs of each category,
+#                                               # -> outputs/_forks/, analysis in outputs/_analysis/forks/
 #
-# Runs that already have outputs/<model>_<pair>/run_config.json are skipped
+# Runs that already have outputs/<model>_<pair>/run_config.json (forks:
+# outputs/_forks/<model>_<pair>/fork_config.json) are skipped
 # (so resubmitting after a partial failure only redoes what's missing). A
 # failed run is retried $RETRIES times (post.sh); if it still fails it does
 # not block the analysis node -- it just gets skipped there.
@@ -23,31 +27,45 @@ RETRIES=2  # a failed run is resubmitted up to this many times before being give
 # (two 2.6B-param UNets in fp16) and needs a 24GB-class card.
 declare -A GPUMEM=([catvton]=7500 [ootd]=7500 [idm]=23000)
 declare -A MEM=([catvton]=16GB [ootd]=24GB [idm]=40GB)
+FORK_PAIRS_PER_CATEGORY=2
+
+if [ -n "${FORKS:-}" ]; then
+  EXP=forks; MODE=fork; PREFIX=fork_; DONE_DIR=outputs/_forks; DONE_FILE=fork_config.json; WALLTIME=28800
+  ANALYZE_VARS='what="forks" logname="analyze_forks"'
+else
+  EXP=trajectories; MODE=trajectory; PREFIX=; DONE_DIR=outputs; DONE_FILE=run_config.json; WALLTIME=14400
+  ANALYZE_VARS='what="" logname="analyze"'
+fi
 
 mkdir -p logs generated
-DAG=generated/trajectories.dag
+DAG=generated/$EXP.dag
 # A second DAGMan on the same DAG file exits immediately (lock file), and
 # rewriting the DAG under a running one is asking for trouble -- refuse.
 if [ -z "${DRY_RUN:-}" ] && command -v condor_q >/dev/null \
-   && condor_q "$USER" -constraint 'JobUniverse == 7' -af Args 2>/dev/null | grep -q "trajectories.dag"; then
-  echo "[submit] a trajectories DAG is still running (condor_q -dag -nobatch)." >&2
+   && condor_q "$USER" -constraint 'JobUniverse == 7' -af Args 2>/dev/null | grep -q "$EXP.dag"; then
+  echo "[submit] a $EXP DAG is still running (condor_q -dag -nobatch)." >&2
   echo "         wait for it to finish, or stop it with condor_rm <dagman job id>, then resubmit." >&2
   exit 1
 fi
 : > "$DAG"
 nodes=()
-while read -r pair _category person cloth; do
+declare -A per_category=()
+while read -r pair category person cloth; do
   [[ -z "$pair" || "$pair" == \#* ]] && continue
+  if [ -n "${FORKS:-}" ]; then
+    per_category[$category]=$(( ${per_category[$category]:-0} + 1 ))
+    [ "${per_category[$category]}" -le "$FORK_PAIRS_PER_CATEGORY" ] || continue
+  fi
   for model in $MODELS; do
     [ -n "${GPUMEM[$model]:-}" ] || { echo "unknown model '$model'" >&2; exit 1; }
-    node="${model}_${pair}"
-    if [ -f "$PROJECT_ROOT/outputs/$node/run_config.json" ] && [ -z "${FORCE:-}" ]; then
+    node="${PREFIX}${model}_${pair}"
+    if [ -f "$PROJECT_ROOT/$DONE_DIR/${model}_${pair}/$DONE_FILE" ] && [ -z "${FORCE:-}" ]; then
       echo "[submit] skip $node (already finished; FORCE=1 to redo)"
       continue
     fi
     cat >> "$DAG" <<EOF
 JOB $node vton.sub
-VARS $node model="$model" pair="$pair" person="$person" cloth="$cloth" gpumem="${GPUMEM[$model]}" mem="${MEM[$model]}"
+VARS $node model="$model" pair="$pair" person="$person" cloth="$cloth" mode="$MODE" logname="$node" walltime="$WALLTIME" gpumem="${GPUMEM[$model]}" mem="${MEM[$model]}"
 RETRY $node $RETRIES
 SCRIPT POST $node post.sh \$RETURN \$RETRY $RETRIES
 EOF
@@ -56,8 +74,9 @@ EOF
 done < pairs.txt
 
 echo "JOB analyze analyze.sub" >> "$DAG"
+echo "VARS analyze $ANALYZE_VARS" >> "$DAG"
 [ ${#nodes[@]} -gt 0 ] && echo "PARENT ${nodes[*]} CHILD analyze" >> "$DAG"
-echo "[submit] $DAG: ${#nodes[@]} trajectory run(s) + analysis"
+echo "[submit] $DAG: ${#nodes[@]} $MODE run(s) + analysis"
 
 if [ -n "${DRY_RUN:-}" ]; then
   cat "$DAG"
@@ -65,4 +84,4 @@ if [ -n "${DRY_RUN:-}" ]; then
 fi
 command -v condor_submit_dag >/dev/null || { echo "condor_submit_dag not found -- run this on an ESAT condor submit node" >&2; exit 1; }
 condor_submit_dag -f "$DAG"
-echo "[submit] watch with: condor_q -dag -nobatch   |   tail -f cluster/logs/<model>_<pair>.out"
+echo "[submit] watch with: condor_q -dag -nobatch   |   tail -f cluster/logs/${PREFIX}<model>_<pair>.out"

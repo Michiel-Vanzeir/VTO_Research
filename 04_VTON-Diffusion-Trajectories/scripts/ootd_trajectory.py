@@ -71,7 +71,9 @@ from run.utils_ootd import get_mask_location  # noqa: E402
 from diffusers import AutoencoderKL, DDIMScheduler  # noqa: E402
 from transformers import AutoProcessor, CLIPTextModel, CLIPTokenizer, CLIPVisionModelWithProjection  # noqa: E402
 
-from common import decode_latents, to_pil, verify_pred_original_sample  # noqa: E402
+from common import (  # noqa: E402
+    add_fork_args, decode_latents, fork_generators, run_forks, step_kwargs, to_pil, verify_pred_original_sample,
+)
 
 CHECKPOINTS = OOTD_REPO / "checkpoints"
 VIT_PATH = CHECKPOINTS / "clip-vit-large-patch14"
@@ -180,11 +182,17 @@ def run_with_capture(
     image_guidance_scale: float,
     seed: int,
     out_dir: Path,
+    capture: bool = True,
+    fork_step=None,
+    fork_seed=None,
 ):
+    """Returns (timesteps, final image). capture=False (fork mode) skips all
+    per-step decoding/saving; fork_step/fork_seed: see common.py."""
     frames_x0_dir = out_dir / "frames_x0"
     frames_zt_dir = out_dir / "frames_zt"
-    frames_x0_dir.mkdir(parents=True, exist_ok=True)
-    frames_zt_dir.mkdir(parents=True, exist_ok=True)
+    if capture:
+        frames_x0_dir.mkdir(parents=True, exist_ok=True)
+        frames_zt_dir.mkdir(parents=True, exist_ok=True)
 
     device = pipe._execution_device
     dtype = pipe.unet_vton.dtype
@@ -192,7 +200,7 @@ def run_with_capture(
 
     pipe._image_guidance_scale = image_guidance_scale
     do_cfg = pipe.do_classifier_free_guidance
-    generator = torch.Generator(device=device).manual_seed(seed)
+    generator, fork_gen = fork_generators(device, seed, fork_step, fork_seed)
 
     # 1. Garment CLIP embedding -> fake "text" embeds, exactly as inference_ootd_hd.py
     prompt_image = auto_processor(images=image_garm, return_tensors="pt").to(device)
@@ -252,22 +260,23 @@ def run_with_capture(
             noise_pred_text_image, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_text + image_guidance_scale * (noise_pred_text_image - noise_pred_text)
 
-        step_output = scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
-
-        if i == 0:
-            x0_hat, _ = verify_pred_original_sample(scheduler, step_output, noise_pred, t, latents)
-        else:
-            x0_hat = getattr(step_output, "pred_original_sample", None)
-            if x0_hat is None:
-                alpha_bar_t = scheduler.alphas_cumprod.to(latents.device)[t]
-                x0_hat = (latents - (1 - alpha_bar_t).sqrt() * noise_pred) / alpha_bar_t.sqrt()
-
-        batch = torch.cat([z_t, x0_hat], dim=0)
-        decoded = decode_latents(vae, batch, dtype)
-        zt_pil, x0_pil = to_pil(decoded[0:1])[0], to_pil(decoded[1:2])[0]
-        zt_pil.save(frames_zt_dir / f"step_{i:03d}.png")
-        x0_pil.save(frames_x0_dir / f"step_{i:03d}.png")
+        step_output = scheduler.step(noise_pred, t, latents, **step_kwargs(i, extra_step_kwargs, fork_step, fork_gen))
         step_timesteps.append(int(t))
+
+        if capture:
+            if i == 0:
+                x0_hat, _ = verify_pred_original_sample(scheduler, step_output, noise_pred, t, latents)
+            else:
+                x0_hat = getattr(step_output, "pred_original_sample", None)
+                if x0_hat is None:
+                    alpha_bar_t = scheduler.alphas_cumprod.to(latents.device)[t]
+                    x0_hat = (latents - (1 - alpha_bar_t).sqrt() * noise_pred) / alpha_bar_t.sqrt()
+
+            batch = torch.cat([z_t, x0_hat], dim=0)
+            decoded = decode_latents(vae, batch, dtype)
+            zt_pil, x0_pil = to_pil(decoded[0:1])[0], to_pil(decoded[1:2])[0]
+            zt_pil.save(frames_zt_dir / f"step_{i:03d}.png")
+            x0_pil.save(frames_x0_dir / f"step_{i:03d}.png")
 
         latents = step_output.prev_sample
 
@@ -279,10 +288,11 @@ def run_with_capture(
             init_latents_proper = scheduler.add_noise(init_latents_proper, noise, torch.tensor([timesteps[i + 1]]))
         latents = (1 - mask_latents) * init_latents_proper + mask_latents * latents
 
-    final_img = decode_latents(vae, latents, dtype)
-    to_pil(final_img)[0].save(out_dir / "final.png")
+    final_pil = to_pil(decode_latents(vae, latents, dtype))[0]
+    if capture:
+        final_pil.save(out_dir / "final.png")
 
-    return step_timesteps
+    return step_timesteps, final_pil
 
 
 def main():
@@ -298,6 +308,7 @@ def main():
     p.add_argument("--dtype", default="fp16", choices=["fp16", "bf16", "fp32"])
     p.add_argument("--output-root", default=str(REPO_ROOT / "outputs"))
     p.add_argument("--device", default="cuda")
+    add_fork_args(p)
     args = p.parse_args()
 
     person_path = Path(args.person)
@@ -307,14 +318,14 @@ def main():
 
     out_dir = Path(args.output_root) / args.run_name
     out_dir.mkdir(parents=True, exist_ok=True)
-
     person_image = Image.open(person_path).convert("RGB")
     cloth_image = Image.open(args.cloth).convert("RGB")
 
     mask, mask_gray = build_mask(person_image, parse_path, kp_path)
-    mask.save(out_dir / "mask.png")
     masked_vton_img = Image.composite(mask_gray, person_image, mask)
-    masked_vton_img.save(out_dir / "masked_vton.png")
+    if not args.fork_steps:
+        mask.save(out_dir / "mask.png")
+        masked_vton_img.save(out_dir / "masked_vton.png")
 
     dtype_map = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}
     dtype = dtype_map[args.dtype]
@@ -327,7 +338,16 @@ def main():
     # absorb. Matching the rest of the pipeline's dtype halves that peak.
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(VIT_PATH, torch_dtype=dtype).to(args.device)
 
-    timesteps = run_with_capture(
+    if args.fork_steps:
+        run_one = lambda k, s: run_with_capture(  # noqa: E731
+            pipe, image_encoder, auto_processor, image_garm=cloth_image, image_vton=masked_vton_img, mask=mask,
+            image_ori=person_image, num_inference_steps=args.steps, image_guidance_scale=args.image_guidance_scale,
+            seed=args.seed, out_dir=out_dir, capture=False, fork_step=k, fork_seed=s)[1]
+        run_forks(args, out_dir, run_one, {"model": "OOTDiffusion-HD", "num_inference_steps": args.steps, "inputs": {
+            "person": str(person_path.resolve()), "cloth": str(Path(args.cloth).resolve())}})
+        return
+
+    timesteps, _ = run_with_capture(
         pipe, image_encoder, auto_processor,
         image_garm=cloth_image,
         image_vton=masked_vton_img,

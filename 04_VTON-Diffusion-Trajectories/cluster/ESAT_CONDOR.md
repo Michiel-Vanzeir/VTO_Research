@@ -123,3 +123,26 @@ formula at step 0) and per-step progress.
 - IDM-VTON's x0-hat at the first step (t=981) is nearly pure noise; its
   step-0 values are real but should not be read as "IDM starts worse" beyond
   that one step.
+
+## Fork experiment (step 3): when is each property *decided*?
+
+```bash
+FORKS=1 bash cluster/submit.sh
+```
+
+48 jobs: the first 2 pairs of every category x 3 models. Each job runs its
+pair 28 times: fork steps k = 0,5,10,15,20,30,40 x noise seeds 1-4
+(`FORK_STEPS`/`FORK_SEEDS` in `run_job.sh`). All forks share the seed-42
+path up to step k, then each continues with its own DDIM noise; k=0 is the
+fully-independent baseline. Only final images are saved:
+`outputs/_forks/<model>_<pair>/k<KK>_s<S>.png`. A job resumes where it
+stopped (existing images are skipped), so a retry after a walltime kill
+(8h) only does what's left. Logs: `cluster/logs/fork_<model>_<pair>.*`,
+`logs/analyze_forks.*`.
+
+The final DAG node runs `scripts/fork_analysis.py` ->
+`outputs/_analysis/forks/`: per-axis fork agreement and "decided"
+(0 = independent, 1 = identical) per k, the half-decision step per
+model/axis with Wilcoxon tests, plots, and a contact sheet per run
+(`sheets/`, rows = k, columns = seeds). Rerun by hand with
+`bash cluster/analyze.sh forks`.

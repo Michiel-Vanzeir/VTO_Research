@@ -1,10 +1,10 @@
 # One trajectory-capture run. Not submitted directly: submit.sh generates a
 # DAG that instantiates this once per (model, pair) with VARS for
-# model/pair/person/cloth and the per-model GPU/RAM needs, plus a final
+# model/pair/person/cloth/mode, the log name and the per-model GPU/RAM needs, plus a final
 # analysis node (analyze.sub).
 universe   = vanilla
 executable = run_job.sh
-arguments  = $(model) $(pair) $(person) $(cloth)
+arguments  = $(model) $(pair) $(person) $(cloth) $(mode)
 
 # Shared filesystem: the job reads code, envs, weights and data in place and
 # writes straight into outputs/ -- nothing is transferred.
@@ -27,11 +27,13 @@ BadHosts = psi-test2.esat.kuleuven.be
 requirements = ((TARGET.CUDAGlobalMemoryMb >= $(gpumem)) || (TARGET.GPUs_GlobalMemoryMb >= $(gpumem))) \
                && !stringListMember(TARGET.Machine, "$(BadHosts)")
 
-# ESAT asks jobs to declare a walltime (seconds); 4h is generous -- a 50-step
-# IDM-VTON run is ~10-20 min on a 24GB card.
-+RequestWalltime = 14400
+# ESAT asks jobs to declare a walltime (seconds), set by submit.sh: 4h for a
+# trajectory run (a 50-step IDM-VTON run is ~10-20 min on a 24GB card), 8h
+# for a fork job (28 full runs, no frame decoding). Fork jobs resume where
+# they stopped, so a retry after a walltime kill only does what's left.
++RequestWalltime = $(walltime)
 
-output = logs/$(model)_$(pair).out
-error  = logs/$(model)_$(pair).err
-log    = logs/$(model)_$(pair).log
+output = logs/$(logname).out
+error  = logs/$(logname).err
+log    = logs/$(logname).log
 queue

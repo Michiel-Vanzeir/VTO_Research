@@ -75,7 +75,7 @@ from transformers import (  # noqa: E402
     CLIPVisionModelWithProjection,
 )
 
-from common import decode_latents, to_pil, verify_pred_original_sample  # noqa: E402
+from common import add_fork_args, decode_latents, fork_generators, run_forks, to_pil, verify_pred_original_sample  # noqa: E402
 
 MODEL_ID = "yisol/IDM-VTON"
 HEIGHT, WIDTH = 1024, 768
@@ -102,26 +102,42 @@ def garment_annotation(cloth_name: str) -> str:
 
 class CaptureStep:
     """Replaces scheduler.step: runs the real step, then decodes and saves
-    z_t and x0-hat for that step."""
+    z_t and x0-hat for that step. capture=False (fork mode) skips the
+    decoding; from step `fork_step` on, the step's noise comes from
+    `fork_gen` instead of the pipeline's generator (see common.py)."""
 
-    def __init__(self, scheduler, vae, out_dir: Path, total_steps: int):
+    def __init__(self, scheduler, vae, out_dir: Path, total_steps: int, capture: bool = True,
+                 fork_step=None, fork_gen=None):
         self.scheduler = scheduler
-        self.orig_step = scheduler.step
+        # the CLASS method, not scheduler.step: in fork mode the pipeline runs
+        # many times and an instance attribute would be the previous wrapper
+        self.orig_step = type(scheduler).step.__get__(scheduler, type(scheduler))
         self.vae = vae
+        self.capture = capture
+        self.fork_step, self.fork_gen = fork_step, fork_gen
         self.frames_x0_dir = out_dir / "frames_x0"
         self.frames_zt_dir = out_dir / "frames_zt"
-        self.frames_x0_dir.mkdir(parents=True, exist_ok=True)
-        self.frames_zt_dir.mkdir(parents=True, exist_ok=True)
+        if capture:
+            self.frames_x0_dir.mkdir(parents=True, exist_ok=True)
+            self.frames_zt_dir.mkdir(parents=True, exist_ok=True)
         self.timesteps = []
         self.final_latents = None
         self.pbar = tqdm(total=total_steps, desc=out_dir.name)
 
     def __call__(self, model_output, timestep, sample, eta=0.0, use_clipped_model_output=False,
                  generator=None, variance_noise=None, return_dict=True):
+        i = len(self.timesteps)
+        if self.fork_gen is not None and i >= self.fork_step:
+            generator = self.fork_gen
         out = self.orig_step(model_output, timestep, sample, eta=eta,
                              use_clipped_model_output=use_clipped_model_output,
                              generator=generator, variance_noise=variance_noise, return_dict=True)
-        i = len(self.timesteps)
+        self.timesteps.append(int(timestep))
+        self.final_latents = out.prev_sample
+        self.pbar.update()
+        if not self.capture:
+            return out if return_dict else (out.prev_sample,)
+
         if i == 0:
             x0_hat, _ = verify_pred_original_sample(self.scheduler, out, model_output, timestep, sample)
         else:
@@ -132,9 +148,6 @@ class CaptureStep:
         zt_pil, x0_pil = to_pil(decoded[0:1])[0], to_pil(decoded[1:2])[0]
         zt_pil.save(self.frames_zt_dir / f"step_{i:03d}.png")
         x0_pil.save(self.frames_x0_dir / f"step_{i:03d}.png")
-        self.timesteps.append(int(timestep))
-        self.final_latents = out.prev_sample
-        self.pbar.update()
         return out if return_dict else (out.prev_sample,)
 
 
@@ -208,9 +221,13 @@ def load_inputs(person_path: Path, cloth_path: Path, mask_path: Path, densepose_
 
 @torch.no_grad()
 def run_with_capture(pipe, inputs, annotation: str, num_inference_steps: int, guidance_scale: float,
-                     seed: int, out_dir: Path):
+                     seed: int, out_dir: Path, capture_frames: bool = True, fork_step=None, fork_seed=None):
+    """Returns (timesteps, final image). capture_frames=False (fork mode)
+    skips all per-step decoding/saving; fork_step/fork_seed: see common.py."""
     device = pipe.device
-    capture = CaptureStep(pipe.scheduler, pipe.vae, out_dir, num_inference_steps)
+    generator, fork_gen = fork_generators(device, seed, fork_step, fork_seed)
+    capture = CaptureStep(pipe.scheduler, pipe.vae, out_dir, num_inference_steps, capture=capture_frames,
+                          fork_step=fork_step, fork_gen=fork_gen)
     pipe.scheduler.step = capture
     assert "eta" in inspect.signature(pipe.scheduler.step).parameters
 
@@ -227,7 +244,6 @@ def run_with_capture(pipe, inputs, annotation: str, num_inference_steps: int, gu
             do_classifier_free_guidance=False,
             negative_prompt=[NEGATIVE_PROMPT],
         )
-        generator = torch.Generator(device).manual_seed(seed)
         images = pipe(
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
@@ -255,10 +271,11 @@ def run_with_capture(pipe, inputs, annotation: str, num_inference_steps: int, gu
     # final.png, and keep the pipeline's own postprocessed output alongside
     # as a sanity check that the wrapped loop produced the normal result.
     with torch.autocast("cuda", enabled=False):
-        final = decode_latents(pipe.vae, capture.final_latents, torch.float32)
-    to_pil(final)[0].save(out_dir / "final.png")
-    images[0].save(out_dir / "final_pipeline.png")
-    return capture.timesteps
+        final_pil = to_pil(decode_latents(pipe.vae, capture.final_latents, torch.float32))[0]
+    if capture_frames:
+        final_pil.save(out_dir / "final.png")
+        images[0].save(out_dir / "final_pipeline.png")
+    return capture.timesteps, final_pil
 
 
 def main():
@@ -273,6 +290,7 @@ def main():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--output-root", default=str(REPO_ROOT / "outputs"))
     p.add_argument("--device", default="cuda")
+    add_fork_args(p)
     args = p.parse_args()
 
     person_path, cloth_path = Path(args.person), Path(args.cloth)
@@ -286,12 +304,20 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     inputs = load_inputs(person_path, cloth_path, mask_path, densepose_path)
-    inputs["mask_pil"].save(out_dir / "mask.png")
     annotation = garment_annotation(cloth_path.name)
     print(f"[idm] garment annotation: {annotation!r}")
-
     pipe = build_pipeline(args.device)
-    timesteps = run_with_capture(
+
+    if args.fork_steps:
+        run_one = lambda k, s: run_with_capture(  # noqa: E731
+            pipe, inputs, annotation, num_inference_steps=args.steps, guidance_scale=args.guidance_scale,
+            seed=args.seed, out_dir=out_dir, capture_frames=False, fork_step=k, fork_seed=s)[1]
+        run_forks(args, out_dir, run_one, {"model": "IDM-VTON", "num_inference_steps": args.steps, "inputs": {
+            "person": str(person_path.resolve()), "cloth": str(cloth_path.resolve()), "mask": str(mask_path.resolve())}})
+        return
+
+    inputs["mask_pil"].save(out_dir / "mask.png")
+    timesteps, _ = run_with_capture(
         pipe, inputs, annotation,
         num_inference_steps=args.steps,
         guidance_scale=args.guidance_scale,

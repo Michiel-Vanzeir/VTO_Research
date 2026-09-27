@@ -1,7 +1,9 @@
-# Final DAG node: metrics + cross-model comparison over every finished run.
+# Final DAG node: metrics + cross-model comparison over every finished run
+# (what=""), or the fork-experiment analysis (what="forks").
 # CPU-only (OpenPose runs on CPU in ~1-2 s/frame when no GPU is present).
 universe   = vanilla
 executable = analyze.sh
+arguments  = $(what)
 should_transfer_files = NO
 
 request_cpus   = 4
@@ -9,7 +11,7 @@ request_memory = 16GB
 request_disk   = 2GB
 +RequestWalltime = 14400
 
-output = logs/analyze.out
-error  = logs/analyze.err
-log    = logs/analyze.log
+output = logs/$(logname).out
+error  = logs/$(logname).err
+log    = logs/$(logname).log
 queue

@@ -39,7 +39,9 @@ from utils import (  # noqa: E402
 from diffusers.utils.torch_utils import randn_tensor  # noqa: E402
 
 sys.path.insert(0, str(SCRIPT_DIR))
-from common import decode_latents, to_pil, verify_pred_original_sample  # noqa: E402
+from common import (  # noqa: E402
+    add_fork_args, decode_latents, fork_generators, run_forks, step_kwargs, to_pil, verify_pred_original_sample,
+)
 
 # --- Empirically confirmed spatial-concat layout ---------------------------
 # CatVTON's pipeline.py does (concat_dim = -2, i.e. the LATENT HEIGHT axis):
@@ -89,17 +91,23 @@ def run_with_capture(
     width: int,
     seed: int,
     out_dir: Path,
+    capture: bool = True,
+    fork_step=None,
+    fork_seed=None,
 ):
+    """Returns (timesteps, final person image). capture=False (fork mode)
+    skips all per-step decoding/saving; fork_step/fork_seed: see common.py."""
     frames_x0_dir = out_dir / "frames_x0"
     frames_zt_dir = out_dir / "frames_zt"
-    frames_x0_dir.mkdir(parents=True, exist_ok=True)
-    frames_zt_dir.mkdir(parents=True, exist_ok=True)
+    if capture:
+        frames_x0_dir.mkdir(parents=True, exist_ok=True)
+        frames_zt_dir.mkdir(parents=True, exist_ok=True)
 
     device = pipeline.device
     weight_dtype = pipeline.weight_dtype
     vae, unet, scheduler = pipeline.vae, pipeline.unet, pipeline.noise_scheduler
 
-    generator = torch.Generator(device=device).manual_seed(seed)
+    generator, fork_gen = fork_generators(device, seed, fork_step, fork_seed)
 
     image, condition_image, mask = pipeline.check_inputs(person_image, cloth_image, mask_image, width, height)
     image = prepare_image(image).to(device, dtype=weight_dtype)
@@ -145,7 +153,11 @@ def run_with_capture(
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
             noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-        step_output = scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
+        step_output = scheduler.step(noise_pred, t, latents, **step_kwargs(i, extra_step_kwargs, fork_step, fork_gen))
+        step_timesteps.append(int(t))
+        if not capture:
+            latents = step_output.prev_sample
+            continue
 
         if i == 0:
             x0_hat, _ = verify_pred_original_sample(scheduler, step_output, noise_pred, t, latents)
@@ -162,17 +174,16 @@ def run_with_capture(
         zt_pil, x0_pil = to_pil(decoded[0:1])[0], to_pil(decoded[1:2])[0]
         zt_pil.save(frames_zt_dir / f"step_{i:03d}.png")
         x0_pil.save(frames_x0_dir / f"step_{i:03d}.png")
-        step_timesteps.append(int(t))
 
         latents = step_output.prev_sample
 
-    save_axis_check(vae, latents, weight_dtype, out_dir / "axis_check.png")
-
     final_person = slice_person(latents)
-    final_img = decode_latents(vae, final_person, weight_dtype)
-    to_pil(final_img)[0].save(out_dir / "final.png")
+    final_pil = to_pil(decode_latents(vae, final_person, weight_dtype))[0]
+    if capture:
+        save_axis_check(vae, latents, weight_dtype, out_dir / "axis_check.png")
+        final_pil.save(out_dir / "final.png")
 
-    return step_timesteps
+    return step_timesteps, final_pil
 
 
 def build_pipeline(args, device="cuda"):
@@ -204,17 +215,27 @@ def main():
     p.add_argument("--attn-version", default="vitonhd", choices=["mix", "vitonhd", "dresscode"])
     p.add_argument("--dtype", default="bf16", choices=["fp16", "bf16", "fp32"])
     p.add_argument("--output-root", default=str(REPO_ROOT / "outputs"))
+    add_fork_args(p)
     args = p.parse_args()
 
     out_dir = Path(args.output_root) / args.run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     person_image = Image.open(args.person).convert("RGB")
     cloth_image = Image.open(args.cloth).convert("RGB")
     mask_image = Image.open(args.mask).convert("L")
-
     pipeline = build_pipeline(args)
-    timesteps = run_with_capture(
+    inputs = {"person": str(Path(args.person).resolve()), "cloth": str(Path(args.cloth).resolve()),
+              "mask": str(Path(args.mask).resolve())}
+
+    if args.fork_steps:
+        run_one = lambda k, s: run_with_capture(  # noqa: E731
+            pipeline, person_image, cloth_image, mask_image, num_inference_steps=args.steps,
+            guidance_scale=args.guidance_scale, height=args.height, width=args.width, seed=args.seed,
+            out_dir=out_dir, capture=False, fork_step=k, fork_seed=s)[1]
+        run_forks(args, out_dir, run_one, {"model": "CatVTON", "num_inference_steps": args.steps, "inputs": inputs})
+        return
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    timesteps, _ = run_with_capture(
         pipeline, person_image, cloth_image, mask_image,
         num_inference_steps=args.steps,
         guidance_scale=args.guidance_scale,

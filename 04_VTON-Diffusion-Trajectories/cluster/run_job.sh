@@ -4,24 +4,35 @@
 # OpenPose is fast). The cross-model comparison runs once all runs are done,
 # in analyze.sh.
 #
-# Usage: run_job.sh <catvton|ootd|idm> <pair name> <person stem> <cloth stem>
-#   -> outputs/<model>_<pair name>/
+# Usage: run_job.sh <catvton|ootd|idm> <pair name> <person stem> <cloth stem> [trajectory|fork]
+#   trajectory (default) -> outputs/<model>_<pair name>/
+#   fork                 -> outputs/_forks/<model>_<pair name>/ (fork experiment,
+#                           see scripts/common.py; FORK_STEPS/FORK_SEEDS below)
 #
 # Each model gets the inputs its own upstream VITON-HD test path uses:
 #   catvton: agnostic-mask-catvton/<person>.png as the mask
 #   ootd:    mask derived from image-parse-v3 + openpose_json (see ootd_trajectory.py)
 #   idm:     agnostic-mask/<person>_mask.png + image-densepose/<person>.jpg
 set -euo pipefail
-MODEL="$1"; PAIR="$2"; PERSON="$3"; CLOTH="$4"
+MODEL="$1"; PAIR="$2"; PERSON="$3"; CLOTH="$4"; MODE="${5:-trajectory}"
+# Fork experiment: fork points and noise seeds per fork point (28 final images per job)
+FORK_STEPS="0,5,10,15,20,30,40"
+FORK_SEEDS="1,2,3,4"
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "$PROJECT_ROOT"
 export HF_HUB_OFFLINE=1  # everything was fetched by setup.sh; execute nodes may have no internet
 
 RUN_NAME="${MODEL}_${PAIR}"
+EXTRA=()
+case "$MODE" in
+  trajectory) ;;
+  fork) EXTRA=(--output-root "$PROJECT_ROOT/outputs/_forks" --fork-steps "$FORK_STEPS" --fork-seeds "$FORK_SEEDS") ;;
+  *) echo "[run_job] unknown mode '$MODE' (expected trajectory|fork)" >&2; exit 1 ;;
+esac
 PERSON_IMG="$DATA_ROOT/image/$PERSON.jpg"
 CLOTH_IMG="$DATA_ROOT/cloth/$CLOTH.jpg"
 
-echo "[run_job] host=$(hostname) run=$RUN_NAME person=$PERSON cloth=$CLOTH"
+echo "[run_job] host=$(hostname) mode=$MODE run=$RUN_NAME person=$PERSON cloth=$CLOTH"
 # Condor jobs get a minimal PATH and some GPU nodes don't have nvidia-smi on
 # it, so the real check is whether torch (what the models use) sees a GPU.
 export PATH="$PATH:/usr/bin:/usr/local/bin:/usr/local/nvidia/bin"
@@ -42,17 +53,17 @@ case "$MODEL" in
     "$VENV_CATVTON/bin/python" scripts/catvton_trajectory.py \
       --person "$PERSON_IMG" --cloth "$CLOTH_IMG" \
       --mask "$DATA_ROOT/agnostic-mask-catvton/$PERSON.png" \
-      --run-name "$RUN_NAME" --steps 50 --seed 42
+      --run-name "$RUN_NAME" --steps 50 --seed 42 "${EXTRA[@]}"
     ;;
   ootd)
     "$VENV_OOTD/bin/python" scripts/ootd_trajectory.py \
       --person "$PERSON_IMG" --cloth "$CLOTH_IMG" \
-      --run-name "$RUN_NAME" --steps 50 --seed 42
+      --run-name "$RUN_NAME" --steps 50 --seed 42 "${EXTRA[@]}"
     ;;
   idm)
     "$VENV_IDM/bin/python" scripts/idmvton_trajectory.py \
       --person "$PERSON_IMG" --cloth "$CLOTH_IMG" \
-      --run-name "$RUN_NAME" --steps 50 --seed 42
+      --run-name "$RUN_NAME" --steps 50 --seed 42 "${EXTRA[@]}"
     ;;
   *)
     echo "[run_job] unknown model '$MODEL' (expected catvton|ootd|idm)" >&2
@@ -60,6 +71,10 @@ case "$MODEL" in
     ;;
 esac
 
+if [ "$MODE" = fork ]; then
+  echo "[run_job] done: outputs/_forks/$RUN_NAME"
+  exit 0
+fi
 "$VENV_CATVTON/bin/python" scripts/viz.py --run-dir "outputs/$RUN_NAME"
 "$VENV_CATVTON/bin/python" scripts/metrics.py --run-dir "outputs/$RUN_NAME"
 echo "[run_job] done: outputs/$RUN_NAME"

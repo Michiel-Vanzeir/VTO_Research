@@ -17,13 +17,21 @@ region any of the models may repaint). Pose uses the full frame.
 Per-step curves (one value per denoising step):
   pose            OpenPose PCK of the frame's skeleton vs the final frame's,
                   averaged over 0.05/0.1/0.2 torso-length tolerances (pose.py).
-  color           fraction of garment pixels whose CIE Lab color is within
-                  COLOR_DELTA_E of the final frame (Delta-E 10 = clearly the
-                  same color family; ~2 is the just-noticeable difference).
-  structure       mean SSIM vs the final frame over garment pixels (grayscale).
+  color           share of garment pixels whose CIE Lab color is within
+                  Delta-E t of the final frame, averaged over t in
+                  COLOR_DELTA_E (2.5 ~ just noticeable ... 20 = other color),
+                  so it degrades gradually instead of flipping at one cutoff.
+                  Both images are smoothed (sigma COLOR_SIGMA px) first, so it
+                  compares the color of regions, not of individual pixels
+                  (which would also react to noise and shifted edges).
+  structure       mean SSIM vs the final frame over garment pixels, on
+                  grayscale images smoothed with sigma STRUCTURE_SIGMA px so
+                  noise and fine detail don't count as structure.
   texture         amount of fine detail vs the final frame: ratio of the two
-                  high-frequency FFT energy fractions, smaller/larger. 1 = as
-                  much fine detail as the final garment, whatever it is.
+                  energy fractions in the mid-high spatial-frequency band
+                  TEXTURE_BAND, smaller/larger. 1 = as much fine detail as the
+                  final garment. The band deliberately excludes the highest
+                  frequencies, where pixel noise and resampling live.
   pattern         similarity of the garment's radial log-power spectrum to the
                   final frame's -- is the specific pattern scale (stripe period,
                   print repeat) already the one it ends with.
@@ -44,6 +52,11 @@ Per-run summaries (per curve):
   final           last value (only meaningful for print_fidelity: how well the
                   final try-on reproduces the garment's pattern).
 
+The axis definitions were chosen with validate_axes.py (controlled blur /
+color-shift / warp / noise perturbations of final images): color, texture
+and structure each react mainly to their own perturbation; pattern reacts
+mainly to blur, i.e. it is NOT independent of texture.
+
 These replace the earlier min-max-normalized "onsets", which (a) turned one
 noisy first step (IDM-VTON's x0-hat at t=981 is nearly pure noise) into an
 "everything settles at step 1" artifact and (b) measured when a curve made
@@ -63,27 +76,30 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 from skimage.color import rgb2lab
+from scipy.ndimage import gaussian_filter
 from skimage.metrics import structural_similarity
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pose import pose_pck, run_keypoints  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-METRICS_VERSION = 2
+METRICS_VERSION = 3
 
 ANALYSIS_SIZE = (384, 512)      # (w, h) every frame is resampled to
-COLOR_DELTA_E = 10.0
+COLOR_DELTA_E = (2.5, 5.0, 10.0, 20.0)
+COLOR_SIGMA = 4.0
+STRUCTURE_SIGMA = 2.0
+TEXTURE_BAND = (0.1, 0.3)         # radial frequency band (1 = spectrum corner) that counts as "fine detail"
 SPECTRAL_SIZE = (128, 128)      # garment crops are resized to this before spectral profiles
 PROFILE_BINS = 20
-HIGH_FREQ_CUT = 0.4             # radial fraction above which FFT energy counts as "fine detail"
 SETTLE_THRESHOLD = 0.8
 
 # (key, plot title, y-label, has headstart) -- the single source of truth
 # for which curves exist; compare_trajectories.py imports this.
 AXES = (
     ("pose", "POSE", "OpenPose PCK vs final skeleton", True),
-    ("color", "COLOR", f"garment pixels within dE {COLOR_DELTA_E:g} of final", True),
-    ("structure", "STRUCTURE", "SSIM vs final (garment)", True),
+    ("color", "COLOR", "garment pixels within dE 2.5-20 of final", True),
+    ("structure", "STRUCTURE", "coarse SSIM vs final (garment)", True),
     ("texture", "TEXTURE", "fine-detail amount vs final", True),
     ("pattern", "PATTERN", "spectral pattern vs final", True),
     ("print_fidelity", "PRINT FIDELITY", "spectral pattern vs garment photo", False),
@@ -116,6 +132,10 @@ def load_mask(path: Path, size) -> np.ndarray:
     return np.asarray(Image.open(path).convert("L").resize(size, Image.NEAREST)) > 127
 
 
+def smooth_rgb(rgb: np.ndarray, sigma: float) -> np.ndarray:
+    return np.stack([gaussian_filter(rgb[..., c], sigma) for c in range(3)], -1)
+
+
 def to_gray(rgb: np.ndarray) -> np.ndarray:
     return rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
 
@@ -143,10 +163,13 @@ def power_spectrum(gray: np.ndarray) -> np.ndarray:
     return np.abs(np.fft.fftshift(np.fft.fft2(gray - gray.mean()))) ** 2
 
 
-def high_freq_fraction(gray: np.ndarray) -> float:
+def detail_fraction(gray: np.ndarray) -> float:
+    """Share of FFT energy in the TEXTURE_BAND of radial frequencies."""
     power = power_spectrum(gray)
     total = power.sum()
-    return float(power[_radius(gray.shape) > HIGH_FREQ_CUT].sum() / total) if total > 0 else 0.0
+    r = _radius(gray.shape)
+    lo, hi = TEXTURE_BAND
+    return float(power[(r > lo) & (r <= hi)].sum() / total) if total > 0 else 0.0
 
 
 def radial_profile(gray: np.ndarray) -> np.ndarray:
@@ -170,11 +193,13 @@ def profile_similarity(p: np.ndarray, q: np.ndarray) -> float:
 # ------------------------------------------------------------- per-step scores
 
 def color_agreement(lab: np.ndarray, ref_lab: np.ndarray, mask: np.ndarray) -> float:
-    delta_e = np.linalg.norm(lab - ref_lab, axis=-1)
-    return float((delta_e[mask] < COLOR_DELTA_E).mean())
+    delta_e = np.linalg.norm(lab - ref_lab, axis=-1)[mask]
+    return float(np.mean([(delta_e < t).mean() for t in COLOR_DELTA_E]))
 
 
-def masked_ssim(gray: np.ndarray, ref_gray: np.ndarray, mask: np.ndarray) -> float:
+def masked_ssim(gray: np.ndarray, ref_gray: np.ndarray, mask: np.ndarray, sigma: float = 0.0) -> float:
+    if sigma:
+        gray, ref_gray = gaussian_filter(gray, sigma), gaussian_filter(ref_gray, sigma)
     _, smap = structural_similarity(gray, ref_gray, data_range=1.0, full=True)
     return float(np.clip(smap[mask].mean(), 0.0, 1.0))
 
@@ -208,6 +233,33 @@ def garment_mask_path(person_path: Path) -> Path:
     return person_path.parents[1] / "agnostic-mask" / f"{person_path.stem}_mask.png"
 
 
+class Reference:
+    """Precomputed per-image data of the frame everything is compared against
+    (the run's final frame), so each step only computes its own side."""
+
+    def __init__(self, rgb: np.ndarray, mask: np.ndarray):
+        self.mask = mask
+        self.lab = rgb2lab(smooth_rgb(rgb, COLOR_SIGMA))
+        self.gray = to_gray(rgb)
+        crop = masked_crop(self.gray, mask)
+        self.detail = detail_fraction(crop)
+        self.profile = radial_profile(crop)
+
+
+def scores_vs_reference(rgb: np.ndarray, ref: Reference) -> dict:
+    """The four final-referenced garment axes for one frame. Shared by
+    compute_run_metrics and validate_axes.py, so the validation tests exactly
+    the code that produces the results."""
+    gray = to_gray(rgb)
+    crop = masked_crop(gray, ref.mask)
+    return {
+        "color": color_agreement(rgb2lab(smooth_rgb(rgb, COLOR_SIGMA)), ref.lab, ref.mask),
+        "structure": masked_ssim(gray, ref.gray, ref.mask, STRUCTURE_SIGMA),
+        "texture": detail_ratio(detail_fraction(crop), ref.detail),
+        "pattern": profile_similarity(radial_profile(crop), ref.profile),
+    }
+
+
 def compute_run_metrics(run_dir: Path) -> dict:
     config = json.loads((run_dir / "run_config.json").read_text())
     timesteps = config["timesteps"]
@@ -221,9 +273,7 @@ def compute_run_metrics(run_dir: Path) -> dict:
 
     frames = [load_rgb(p) for p in frame_paths]
     grays = [to_gray(f) for f in frames]
-    final_lab, final_gray = rgb2lab(frames[-1]), grays[-1]
-    final_crop = masked_crop(final_gray, mask)
-    final_hf, final_profile = high_freq_fraction(final_crop), radial_profile(final_crop)
+    ref = Reference(frames[-1], mask)
     cloth_gray = to_gray(np.asarray(Image.open(cloth_path).convert("RGB")).astype(np.float32) / 255.0)
     cloth_profile = radial_profile(masked_crop(cloth_gray, cloth_mask))
 
@@ -231,13 +281,9 @@ def compute_run_metrics(run_dir: Path) -> dict:
     curves = {k: [] for k, *_ in AXES}
     curves["pose"] = [pose_pck(kp, kps["frames"][-1]) for kp in kps["frames"]]
     for i, (rgb, gray) in enumerate(zip(frames, grays)):
-        crop = masked_crop(gray, mask)
-        profile = radial_profile(crop)
-        curves["color"].append(color_agreement(rgb2lab(rgb), final_lab, mask))
-        curves["structure"].append(masked_ssim(gray, final_gray, mask))
-        curves["texture"].append(detail_ratio(high_freq_fraction(crop), final_hf))
-        curves["pattern"].append(profile_similarity(profile, final_profile))
-        curves["print_fidelity"].append(profile_similarity(profile, cloth_profile))
+        for key, value in scores_vs_reference(rgb, ref).items():
+            curves[key].append(value)
+        curves["print_fidelity"].append(profile_similarity(radial_profile(masked_crop(gray, mask)), cloth_profile))
         curves["stability"].append(float("nan") if i == 0 else masked_ssim(gray, grays[i - 1], mask))
 
     # Supplementary, not an axis: does the try-on keep the person's own pose.

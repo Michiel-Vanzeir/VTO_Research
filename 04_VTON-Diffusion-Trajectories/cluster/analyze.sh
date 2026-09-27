@@ -16,4 +16,6 @@ for d in outputs/catvton_* outputs/ootd_* outputs/idm_*; do
   fi
 done
 "$PY" scripts/compare_trajectories.py
-echo "[analyze] done: see outputs/_comparison/"
+"$PY" scripts/change_decomposition.py   # within-model: which scales change when
+"$PY" scripts/validate_axes.py          # sanity check that each metric axis measures its own property
+echo "[analyze] done: see outputs/_comparison/ and outputs/_analysis/"

@@ -89,6 +89,20 @@ Each run's `.out` starts with the GPU name/driver and contains the
 `[verify] ... -> OK/MISMATCH` line (scheduler's x0-hat vs the manual
 formula at step 0) and per-step progress.
 
+## Within-model analyses (outputs/_analysis/)
+
+- `axis_validation/`: `scripts/validate_axes.py` perturbs every final image
+  (blur, color shift, warp, noise) and checks that each metric axis reacts
+  mainly to its own property. Color, structure and texture are specific;
+  pattern also reacts to blur (it overlaps with texture); no axis reads noise
+  as color, structure or detail.
+- `change_decomposition/`: `scripts/change_decomposition.py` splits each
+  step's change into coarse / mid / fine spatial scales and luminance /
+  chroma, and tracks each band's progress to the final image normalized to
+  its own start, so bands can be compared WITHIN one model
+  (`coarse_to_fine_index`, `luma_before_chroma_index`,
+  `detail_phase_headstart`; see the script docstring).
+
 ## Method notes
 
 - All three models are sampled with DDIM, 50 steps, eta=1.0, seed 42, and

@@ -3,7 +3,7 @@
 # that moved in later releases. huggingface-hub must stay < 0.26 for this
 # diffusers (it imports the since-removed `cached_download`).
 diffusers==0.25.0
-transformers==4.36.2
+transformers==5.10.1
 accelerate==0.25.0
 huggingface-hub==0.20.3
 tokenizers==0.15.2

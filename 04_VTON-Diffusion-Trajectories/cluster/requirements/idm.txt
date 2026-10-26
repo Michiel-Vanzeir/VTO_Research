@@ -2,7 +2,7 @@
 # 4.36.2 / accelerate 0.25.0; its hacked SDXL UNets import diffusers internals
 # that moved in later releases. huggingface-hub must stay < 0.26 for this
 # diffusers (it imports the since-removed `cached_download`).
-diffusers==0.25.0
+diffusers==0.38.0
 transformers==4.36.2
 accelerate==0.25.0
 huggingface-hub==0.20.3

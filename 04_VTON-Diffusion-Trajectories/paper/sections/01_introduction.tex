@@ -1,0 +1,22 @@
+\section{\uppercase{Introduction}}
+\label{sec:introduction}
+
+Image-based virtual try-on, the task of rendering a given garment on a given person, has strong potential for online fashion retail, where customers cannot physically try on clothes. Latent diffusion models such as \catvton~\cite{chong2025catvton}, \ootd~\cite{xu2025ootdiffusion} and \idm~\cite{choi2024idmvton} now render these with striking realism. Though the technology has seen rapid development in recent years, it remains largely confined to research and has not yet seen mainstream adoption. Developing these models further is key to moving them from a "nice-to-have" experimental feature to a standard expectation across e-commerce. Allowing customers to virtually try on any item before purchase could reduce the number of returns, raise conversion rates and increase online shopping overall.  
+\\ \\
+To our knowledge, these models are mainly evaluated on their final image, using metrics such as FID~\cite{heusel2017fid}, KID~\cite{binkowski2018kid}, SSIM~\cite{wang2004ssim} or LPIPS~\cite{zhang2018lpips}, rather than on how that final image emerges over the denoising steps. Questions like whether the garment's colour is fixed before its print, whether the pose is fixed immediately or whether architecturally different models build the image in the same order remain largely unanswered. Insights into the dynamics of the diffusion process could be used to address weak points or to develop entirely new methods, for example by using multiple models throughout the denoising process and taking advantage of each one's main strengths. LPH-VTON~\cite{liu2026lphvton} uses this strategy by switching from a structure-biased to a texture-biased model through a Latent Process Handover.
+\\ \\
+We address this gap by studying how the try-on emerges during denoising rather than only evaluating the final image. At each denoising step, we decode the model's estimate $\hat{x}_0$ of the clean image and score it on six property-specific axes: pose, structure, colour, texture, pattern and stability. We compare \catvton, \ootd and \idm on 48 VITON-HD person-garment pairs, six in each of eight garment categories (check, dot, floral, graphic, lettering, solid, stripe and structural). All three models are run on the same 48 pairs with the same sampler. Each model generates at its own native resolution, but every estimate is resized to one common resolution and scored over the same garment region, so that the scores of the three models can be compared directly.
+\\ \\
+Our main contributions are as follows: 
+
+\begin{itemize}
+  \item A model-agnostic protocol to track garment properties along the
+        denoising trajectory, with axes validated for specificity.
+  \item A comparison of three diffusion VTON models over 48 garment-person pairs in eight garment categories.
+  \item A frequency-band decomposition showing
+that all three models generate the garment
+from coarse to fine, but at a different pace.
+  \item The finding that all three models fix pose and structure within the first few steps, though OOTDiffusion fills in the garment's detail earlier than CatVTON and IDM-VTON (from the first steps versus from around step 5 and 10 respectively), especially for repeating patterns such as stripes. 
+\end{itemize}
+\vspace{\baselineskip}
+Section~\ref{sec:related} reviews related work, Section~\ref{sec:method} covers the trajectory analysis methodology and Section~\ref{sec:setup} the experimental setup. Following this, Section~\ref{sec:results} presents the results, which are further discussed in Section~\ref{sec:discussion}.

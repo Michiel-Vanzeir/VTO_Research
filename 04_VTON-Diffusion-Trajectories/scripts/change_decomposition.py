@@ -34,15 +34,10 @@ Per-run summaries (higher = earlier, as everywhere else):
                              < 0 fine before coarse, ~0 all at once
   luma_before_chroma_index   L_auc - chroma_auc: > 0 means brightness
                              structure is resolved before color
-  detail_phase_headstart     share of the trajectory still left when the
-                             model enters its "detail phase": the first step
-                             from which the fine band is (3-step average)
-                             >= DETAIL_PHASE_SHARE of every later step's
-                             change. 1 = from the start, 0 = never.
 
 Expect every model to be coarse-to-fine to some degree: noise drowns fine
 scales first, so diffusion models generally fill them in last ("spectral
-autoregression"). The model differences are in WHEN the detail phase starts
+autoregression"). The model differences are in when the fine band progresses
 and how gradually the bands hand over.
 
 Writes per run: <run>/change_decomposition.json, and in
@@ -73,7 +68,6 @@ from metrics import ANALYSIS_SIZE, garment_mask_path, load_mask, load_rgb, resol
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION = 2
-DETAIL_PHASE_SHARE = 0.5
 FINE_SIGMA, COARSE_SIGMA = 2.0, 8.0
 BANDS = ("coarse", "mid", "fine")
 CHANNELS = ("L", "chroma")
@@ -94,24 +88,11 @@ def energy(x: np.ndarray, window: np.ndarray, channels=slice(None)) -> float:
     return float((window[..., None] * x[..., channels] ** 2).sum())
 
 
-def detail_phase_headstart(fine_shares) -> float:
-    """Share of the trajectory left when the fine band starts to make up
-    >= DETAIL_PHASE_SHARE of the change at every remaining step (3-step
-    moving average, edges padded with their own value -- zero padding would
-    drag the last step below the threshold)."""
-    fine = np.nan_to_num(np.asarray(fine_shares[1:], dtype=np.float64), nan=0.0)  # [0] is undefined (no previous step)
-    smooth = np.convolve(np.pad(fine, 1, mode="edge"), np.ones(3) / 3, mode="valid")
-    n_steps = len(fine_shares)
-    start = next((i + 1 for i in range(len(smooth)) if (smooth[i:] >= DETAIL_PHASE_SHARE).all()), None)
-    return 0.0 if start is None else 1.0 - start / (n_steps - 1)
-
-
-def summarize(progress: dict, shares: dict) -> dict:
+def summarize(progress: dict) -> dict:
     auc = {k: float(np.nanmean(v)) for k, v in progress.items()}
     return {**{f"{k}_auc": v for k, v in auc.items()},
             "coarse_to_fine_index": auc["coarse"] - auc["fine"],
-            "luma_before_chroma_index": auc["L"] - auc["chroma"],
-            "detail_phase_headstart": detail_phase_headstart(shares["fine"])}
+            "luma_before_chroma_index": auc["L"] - auc["chroma"]}
 
 
 def analyze_run(run_dir: Path) -> dict:
@@ -122,7 +103,7 @@ def analyze_run(run_dir: Path) -> dict:
     if cache.exists():
         data = json.loads(cache.read_text())
         if data.get("version") == VERSION:
-            data["summary"] = summarize(data["progress"], data["shares"])
+            data["summary"] = summarize(data["progress"])
             return data
     config = json.loads((run_dir / "run_config.json").read_text())
     mask = load_mask(garment_mask_path(resolve_input(config["inputs"]["person"])), ANALYSIS_SIZE)
@@ -165,7 +146,7 @@ def analyze_run(run_dir: Path) -> dict:
         "progress": progress,
         "shares": shares,
         "change_rms": change_rms,
-        "summary": summarize(progress, shares),
+        "summary": summarize(progress),
     }
     cache.write_text(json.dumps(data))
     return data
@@ -219,8 +200,7 @@ def main():
     # statistics: is each index different from 0 within a model; do models differ (paired by pair)
     lines = []
     meaning = {"coarse_to_fine_index": "> 0: coarse scales resolved before fine",
-               "luma_before_chroma_index": "> 0: luminance resolved before chroma",
-               "detail_phase_headstart": "higher: detail phase starts earlier; step = (1 - value) * 49"}
+               "luma_before_chroma_index": "> 0: luminance resolved before chroma"}
     for idx, what in meaning.items():
         lines.append(f"== {idx}  ({what})")
         by = {n: {r["pair"]: r[idx] for r in rows if r["model"] == n} for n in names}
@@ -252,11 +232,10 @@ def main():
                 ax.plot(x, mean, color=BAND_COLORS[k], label=k)
                 ax.fill_between(x, mean - std, mean + std, color=BAND_COLORS[k], alpha=0.12, linewidth=0)
             ax.set_ylim(-0.02, 1.02)
-            ax.set_title(f"{n} (n={len(runs_n)}) -- {'scale bands' if row == 0 else 'luminance vs chroma'}", fontsize=10)
+            ax.set_title(f"{n}: {'scale bands' if row == 0 else 'luminance vs chroma'}", fontsize=10)
             ax.set_xlabel("denoising step")
-            ax.set_ylabel("progress to final (own start = 0)")
+            ax.set_ylabel("band progress")
             ax.legend(fontsize=8, loc="lower right")
-    fig.suptitle("Band progress: share of each band's distance to the final image already removed (higher = further along)")
     fig.tight_layout()
     fig.savefig(out / "progress_by_band.png", dpi=110)
     plt.close(fig)
@@ -278,7 +257,6 @@ def main():
         axes[1, j].set_yscale("log")
         axes[1, j].set_ylabel("change size (Lab RMS)", fontsize=8)
         axes[1, j].set_xlabel("denoising step")
-    fig.suptitle("What is being edited when (shares of step-to-step change; not a score)")
     fig.tight_layout()
     fig.savefig(out / "change_shares.png", dpi=110)
     plt.close(fig)
@@ -288,8 +266,7 @@ def main():
     fig, axes = plt.subplots(1, 2, figsize=(14, 4.2))
     width = 0.8 / len(names)
     for ax, idx, title in zip(axes, ("coarse_to_fine_index", "luma_before_chroma_index"),
-                              ("coarse-to-fine index (> 0: coarse scales resolved first)",
-                               "luminance-before-chroma index (> 0: brightness resolved first)")):
+                              ("Coarse-to-fine index", "Luminance-before-chroma index")):
         for i, n in enumerate(names):
             m, s = [], []
             for c in cats + ["ALL"]:

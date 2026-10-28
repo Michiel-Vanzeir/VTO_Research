@@ -1,0 +1,55 @@
+\section{\uppercase{Method}}
+\label{sec:method}
+
+\subsection{Capturing the Denoising Trajectory}
+All three models are latent diffusion models that predict the noise $\epsilon_\theta(z_t, t, c)$ in a noisy latent $z_t$, given the conditioning $c$ (person, garment and pose inputs). From this prediction, the model's current estimate of the clean latent follows:
+
+\begin{equation}
+\hat{z}_0^{(t)} = \frac{z_t - \sqrt{1-\bar{\alpha}_t}\,\epsilon_\theta(z_t, t, c)}{\sqrt{\bar{\alpha}_t}}
+\label{eq:x0}
+\end{equation}
+where $\bar{\alpha}_t$ is the cumulative noise schedule. We decode $\hat{z}_0^{(t)}$ with the model's own VAE at every step and call the result $\hat{x}_0^{(i)}$, with $i = 0, \dots, N-1$ the step index. The noise prediction used is the one after classifier-free guidance, like the one used in the sampler. For all three models, we verified at the first step of every run that Equation~\ref{eq:x0} reproduces the estimate that the scheduler computes internally.
+\\ \\
+To compare the models step by step, they must follow the same noise schedule. Therefore, all three models are sampled with DDIM~\cite{song2021ddim} using $\eta = 1$ and $N = 50$ steps, at the timesteps $t = 981, 961, \dots, 1$, i.e.\ every 20th of the 1,000 training timesteps. For CatVTON this is the default sampler and step count. OOTDiffusion and IDM-VTON use a different sampler by default (namely UniPC and DDPM respectively, both with 30 steps). Swapping the sampler does not change the network prediction for a given $z_t$ and $t$, since the noise schedule $\bar{\alpha}_t$ is a property of training, although the distribution of $z_t$ itself depends on the sampler. It does mean that the resulting final images vary slightly from the ones obtained with the original implementation. For CatVTON and OOTDiffusion, we re-implement the denoising loop step by step. Because IDM-VTON's pipeline contains considerable SDXL-specific conditioning, we leave its loop untouched and wrap the scheduler's step function, which receives $z_t$, $t$ and the guided noise prediction.
+
+\subsection{Common Evaluation Frame}
+The models do not work at the same resolution and use different inpainting masks. To make their scores comparable, we resize every frame to a resolution of $384 \times 512$ pixels, CatVTON's native resolution. All garment scores are computed over one shared region, namely the agnostic mask provided with VITON-HD, which covers both the garment and the arms. It therefore contains every pixel any of the models may repaint. Only pose is measured using the full frame.
+\\ \\ 
+All scores are reported on a $[0,1]$ scale. For the per-step curves, higher values indicate proximity to the final frame of the same run, $\hat{x}_0^{(N-1)}$, so every curve ends at 1. Consequently, the curves give an indication of how much of the final result is present at a given step, not how good that result is.
+
+\subsection{Property Axes}
+\label{sec:axes}
+We define six axes, each targeting one property of virtual try-on output quality. 
+\\ \\
+\textbf{Pose.} OpenPose~\cite{cao2019openpose} detects the 18 COCO body keypoints on every frame, from which we compute the percentage of correct keypoints (PCK) with respect to the skeleton of the final frame. A keypoint is considered correct when it lies within a fraction $\tau$ of the torso length from its final position. To keep scores from changing in steps of $1/18$, we average over $\tau \in \{0.05, 0.1, 0.2\}$ for our final pose score, so that it changes gradually instead. We classify an undetected keypoint as incorrect. The OpenPose body model we used matches the one used by OOTDiffusion and IDM-VTON. It is also the model used to produce the VITON-HD keypoint annotations.
+\\ \\
+\textbf{Colour.} Both images are smoothed with a Gaussian of $\sigma = 4$ px and converted to CIELAB. Each garment pixel receives a score given by Equation~\ref{eq:s} that decreases continuously with its colour difference $\Delta E^*_{ab}$ to the final frame. Since a colour difference below $2.5$ is barely perceptible~\cite{mahy1994evaluation}, we truncate the score to 1 in this range. Above $\Delta E^*_{ab} = 20$, the difference is considered unacceptable and the score is set to 0. Between those thresholds, it decreases linearly in $\log \Delta E^*_{ab}$, so that every doubling of the difference reduces the score by a constant amount:
+\begin{equation}
+  s = \min\!\left(1, \max\!\left(0, \frac{\log(20 / \Delta E^*_{ab})}{\log 8}\right)\right).
+  \label{eq:s}
+\end{equation}
+The mean of $s$ over all garment pixels produces the resulting colour axis value. The smoothing makes the axis compare the colour of regions rather than individual pixels, which would also react to noise and shifted edges.
+\\ \\
+\textbf{Structure.} The mean SSIM~\cite{wang2004ssim} over the garment pixels between the current frame and the final frame. Both are converted to greyscale and smoothed with a Gaussian of $\sigma = 2$ px to ensure noise and fine detail are not counted as structure.
+\\ \\
+\textbf{Texture.} The amount of fine detail compared to the final frame. We crop the garment region to its bounding box, fill the pixels outside the mask with the mean garment value and compute the power spectrum. The detail fraction $f$ is the share of spectral energy in the radial frequency band $0.1 < r \leq 0.3$, with $r = 1$ at the corner of the spectrum. The highest frequencies are left out so that residual noise does not count as detail. We compute the same fraction $f_{\text{ref}}$ for the final frame of the run and score each frame as $\min(f, f_{\text{ref}})/\max(f, f_{\text{ref}})$, so a frame with too little or too much detail scores low.
+\\ \\
+\textbf{Pattern.} Whether the generated garment's pattern matches that of the final frame, for example the period of a stripe or the repeat of a print. The score is calculated by resizing the garment crop to $128 \times 128$, computing the share of spectral power in 20 equal-width radial bins and comparing this profile $p$ to the profile $q$ of the final frame using $\exp(-\overline{|\log_{10} p - \log_{10} q|})$, where the bar denotes the mean over the 20 bins.
+\\ \\
+\textbf{Stability.} The mean SSIM over the garment pixels between a frame and the frame of the previous step. Unlike the other axes it does not use the final frame and measures how much the estimate is still changing. Therefore, it is undefined at step 0.
+\\ \\
+\textbf{Summaries.} We summarise each curve $s_i$ by one number. The trajectory AUC (Area Under the Curve) is the mean of the curve over all steps or in other words the normalised area under it. A high AUC means the frame is close to its final state for most of the trajectory. Curves with different shapes can have the same AUC, which is why we also report scores at fixed steps.
+
+\subsection{Axis Validation}
+\label{sec:validation}
+Since an axis should only react to its own property and not to the others, we tested the sensitivity of each axis with controlled perturbations of the 144 final images. For the texture property, we applied a Gaussian blur to remove fine detail. By applying a constant shift in the $a^*b^*$ plane of CIELAB, it was possible to change only the colour of a frame and thus determine the colour scoring sensitivity. To evaluate the structure property, we applied a smooth random displacement field to move regions while retaining colour and detail. Finally, we also tested additive Gaussian noise, which no axis should react to. Pose and stability were not evaluated since pose relies on a keypoint detector and stability is a simple SSIM between consecutive frames.
+
+\subsection{Frequency-Band Decomposition}
+\label{sec:bands}
+The structure and texture axes roughly follow coarse and fine content, but they cannot show which of the two a model resolves first. Each axis uses its own distance and its own mapping to $[0,1]$, so equal scores on two axes do not mean equal progress. The axes also start from different values at step 1. We therefore also decompose every frame $x$ in CIELAB into three spatial-frequency bands that sum back to the image,
+\begin{equation}
+x = \underbrace{G_8 * x}_{\text{coarse}} + \underbrace{(G_2 - G_8) * x}_{\text{mid}} + \underbrace{(x - G_2 * x)}_{\text{fine}},
+\end{equation}
+where $G_\sigma$ is a Gaussian blur of $\sigma$ pixels at the analysis resolution. Layout and large shading of the garment correspond to the coarse band. The mid band elements are sized roughly 2 to 8 pixels, such as stripes and dots. Edges and texture are taken into account by the fine band. Separately, we split each frame into luminance ($L^*$) and chroma ($a^*b^*$).
+\\ \\
+For each band $b$ at sampling step $i$, we compute the distance $d_b(i)$ to the same band of the final frame, weighted by a smoothed version of the garment mask. We define its progress as $p_b(i) = 1 - d_b(i)/d_b(1)$, clipped to $[0, 1]$. Each band is thus normalised by its own starting distance, so all bands go from 0 to 1 and can be compared directly. We start from step 1 rather than step 0 because \idm's estimate at step 0 ($t = 981$) is close to pure noise. At this step, Equation 1 divides by $\sqrt{\bar{\alpha}_t} \approx 0.08$, which amplifies any error in the guided noise prediction. From the band AUCs we define a coarse-to-fine index, $\text{AUC}_\text{coarse} - \text{AUC}_\text{fine}$, which is positive when coarse content is resolved before fine content. Likewise, the luminance-before-chroma index is $\text{AUC}_{L} - \text{AUC}_{ab}$.

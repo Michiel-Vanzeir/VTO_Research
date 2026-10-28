@@ -16,7 +16,11 @@ uses (metrics.scores_vs_reference, same garment mask and resolution):
                                                        as color/structure/detail
 
 A well-behaved axis drops strongly for "its" perturbation and little for the
-others. Output is a specificity table: the DROP (1 - score) per axis and
+others. The strongest setting of each perturbation lowers its target axis at
+least as far as the trajectories themselves start below 1 (e.g. IDM-VTON's
+structure starts at ~0.4), so the test covers the range the curves use. The
+warp's max displacement is about 3x its mean (16/32/64 px max ~ 6/12/23 px
+mean). Output is a specificity table: the DROP (1 - score) per axis and
 perturbation, averaged over images -- here, unlike everywhere else in this
 project, HIGHER means the axis REACTS MORE (that is the quantity being
 validated, not a quality).
@@ -76,10 +80,10 @@ def noise(rgb, std, rng):
 
 
 PERTURBATIONS = {  # name: (function, strengths, unit, the axis it is meant to hit)
-    "blur": (blur, (1, 2, 4), "sigma px", "texture"),
-    "color": (color_shift, (4, 8, 16), "Delta-E", "color"),
-    "warp": (warp, (2, 4, 8), "max px", "structure"),
-    "noise": (noise, (0.02, 0.05, 0.1), "std", "none"),
+    "blur": (blur, (2, 4, 8), "sigma px", "texture"),
+    "color": (color_shift, (5, 10, 20), "Delta-E", "color"),
+    "warp": (warp, (16, 32, 64), "max px", "structure"),
+    "noise": (noise, (0.05, 0.1, 0.2), "std", "none"),
 }
 
 
@@ -131,7 +135,7 @@ def main():
         for j, a in enumerate(AXES):
             ax.text(j, i, f"{mat[i, j]:.2f}", ha="center", va="center", fontsize=7,
                     color="black" if mat[i, j] > 0.35 else "white", fontweight="bold" if a == rows[i][1] else "normal")
-    fig.colorbar(im, label="drop (1 - score): higher = axis reacts more")
+    fig.colorbar(im, label="score drop (1 - score)")
     ax.set_title(f"Axis specificity, {len(runs)} final images\n(bold = the axis the perturbation targets)", fontsize=10)
     fig.tight_layout()
     fig.savefig(out / "specificity.png", dpi=120)

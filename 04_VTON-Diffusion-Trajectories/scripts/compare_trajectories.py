@@ -1,9 +1,7 @@
 """
 Cross-model comparison of the per-run trajectory metrics (see metrics.py for
-what each axis measures). ALL NUMBERS ARE IN [0, 1] AND HIGHER IS BETTER:
-higher auc / headstart = the model commits to its final result earlier,
-higher print_fidelity_final = the final try-on reproduces the garment's
-pattern better.
+what each axis measures). All numbers are in [0, 1]; a higher AUC means the
+model commits to its final result earlier.
 
 Runs are grouped by pair and by garment category (from cluster/pairs.txt,
 written by select_pairs.py), so every statement is backed by several
@@ -14,7 +12,6 @@ Writes to outputs/_comparison/ (regenerated from scratch on every run):
   by_category.csv         mean / std / n per (category, model)
   by_model.csv            mean / std / n per model over all pairs
   summary_auc.png         per axis: AUC per category and model (+ std error bars)
-  summary_headstart.png   the same for headstart
   category_<cat>.png      mean curve per model (+/- std band) over that category
   category_all.png        the same over all pairs
   pair_<name>.png         every model's curves for one pair
@@ -34,7 +31,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from metrics import AXES, SETTLE_THRESHOLD, load_or_compute
+from metrics import AXES, load_or_compute
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PAIRS_FILE = REPO_ROOT / "cluster" / "pairs.txt"
@@ -63,24 +60,11 @@ def parse_run(run_dir: Path):
 
 
 def score_columns():
-    cols = []
-    for key, _, _, has_headstart in AXES:
-        cols.append(f"{key}_auc")
-        if has_headstart:
-            cols.append(f"{key}_headstart")
-    cols.append("print_fidelity_final")
-    return cols
+    return [f"{key}_auc" for key, *_ in AXES]
 
 
 def run_scores(result: dict) -> dict:
-    s = result["summary"]
-    row = {}
-    for key, _, _, has_headstart in AXES:
-        row[f"{key}_auc"] = s[key]["auc"]
-        if has_headstart:
-            row[f"{key}_headstart"] = s[key]["headstart"]
-    row["print_fidelity_final"] = s["print_fidelity"]["final"]
-    return row
+    return {f"{key}_auc": result["summary"][key]["auc"] for key, *_ in AXES}
 
 
 def mean_std(values):
@@ -110,8 +94,8 @@ def write_grouped_csv(path: Path, rows: list, group_keys: tuple, order: dict):
 def plot_curves(title: str, results_by_model: dict, out_path: Path):
     """results_by_model: display name -> list of metric results. One line per
     model (mean over its results), shaded +/- std when there are several."""
-    fig, axes = plt.subplots(2, 4, figsize=(18, 8))
-    for ax, (key, axis_title, ylabel, has_headstart) in zip(axes.flat, AXES):
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+    for ax, (key, axis_title, ylabel) in zip(axes.flat, AXES):
         for name, color in MODELS.values():
             results = results_by_model.get(name)
             if not results:
@@ -127,17 +111,11 @@ def plot_curves(title: str, results_by_model: dict, out_path: Path):
                     warnings.simplefilter("ignore", RuntimeWarning)
                     std = np.nanstd(arr, axis=0)
                 ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.15, linewidth=0)
-        if has_headstart:
-            ax.axhline(SETTLE_THRESHOLD, color="gray", linestyle=":", linewidth=0.8)
         ax.set_title(axis_title, fontsize=10)
         ax.set_ylim(-0.02, 1.02)
         ax.set_xlabel("denoising step")
         ax.set_ylabel(ylabel, fontsize=8)
     axes.flat[0].legend(fontsize=8, loc="lower right")
-    axes.flat[-1].axis("off")
-    axes.flat[-1].text(0, 0.5, "all scores: higher = better / closer\n"
-                       "line = mean, band = +/- 1 std over pairs\n"
-                       f"dotted line: settle threshold {SETTLE_THRESHOLD}", fontsize=9, va="center")
     fig.suptitle(title)
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
@@ -145,7 +123,7 @@ def plot_curves(title: str, results_by_model: dict, out_path: Path):
 
 
 def plot_summary(rows: list, categories: list, metric_cols: list, titles: list, out_path: Path, suptitle: str):
-    ncols = 4
+    ncols = 3
     nrows = -(-len(metric_cols) // ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3.6 * nrows), squeeze=False)
     groups = categories + ["ALL"]
@@ -161,7 +139,6 @@ def plot_summary(rows: list, categories: list, metric_cols: list, titles: list, 
             ax.bar(x, means, width, yerr=stds, color=color, label=name, capsize=2, error_kw={"linewidth": 0.8})
         ax.set_xticks(np.arange(len(groups)))
         ax.set_xticklabels(groups, rotation=45, ha="right", fontsize=8)
-        ax.axvline(len(groups) - 1.5, color="gray", linewidth=0.6)
         ax.set_ylim(0, 1.05)
         ax.set_title(title, fontsize=10)
     for ax in axes.flat[len(metric_cols):]:
@@ -221,14 +198,9 @@ def main():
     write_grouped_csv(out / "by_category.csv", rows, ("category", "model"), order)
     write_grouped_csv(out / "by_model.csv", rows, ("model",), order)
 
-    auc_cols = [f"{k}_auc" for k, *_ in AXES] + ["print_fidelity_final"]
-    auc_titles = [f"{t} -- auc" for _, t, *_ in AXES] + ["PRINT FIDELITY -- final image"]
-    plot_summary(rows, categories, auc_cols, auc_titles, out / "summary_auc.png",
-                 "AUC per category (higher = closer to its final result earlier; error bar = std over pairs)")
-    hs_cols = [f"{k}_headstart" for k, _, _, hs in AXES if hs]
-    hs_titles = [f"{t} -- headstart" for _, t, _, hs in AXES if hs]
-    plot_summary(rows, categories, hs_cols, hs_titles, out / "summary_headstart.png",
-                 f"Headstart per category (share of steps left when the curve settles >= {SETTLE_THRESHOLD}; higher = earlier)")
+    auc_cols = score_columns()
+    auc_titles = [t for _, t, *_ in AXES]
+    plot_summary(rows, categories, auc_cols, auc_titles, out / "summary_auc.png", "Trajectory AUC per category")
 
     for cat in categories + ["all"]:
         by_model = {}
@@ -241,7 +213,7 @@ def main():
         if len(by_model) > 1:
             plot_curves(f"pair: {pair} ({categories_of.get(pair, 'uncategorized')})", by_model, out / f"pair_{pair}.png")
 
-    print(f"\n{len(rows)} runs, {len(categories)} categories. Mean over all pairs (higher = better):")
+    print(f"\n{len(rows)} runs, {len(categories)} categories. Mean AUC over all pairs:")
     print(f"{'':14}" + "".join(f"{c.replace('_auc', ''):>22}" for c in auc_cols))
     for name in (v[0] for v in MODELS.values()):
         vals = [mean_std([r[c] for r in rows if r["model"] == name])[0] for c in auc_cols]

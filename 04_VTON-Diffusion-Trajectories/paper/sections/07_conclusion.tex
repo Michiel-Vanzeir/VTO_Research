@@ -1,0 +1,6 @@
+\section{\uppercase{Conclusion}}
+\label{sec:conclusion}
+
+We studied the virtual try-on denoising dynamics instead of only using the final image for evaluation. By decoding the model's estimate of the clean image at every step and scoring it on six validated property axes, together with a frequency-band decomposition, we compared CatVTON, OOTDiffusion and IDM-VTON on 48 garment-person pairs in eight garment categories.
+\\ \\
+All three models generate the try-on in the same order: the pose and the coarse structure of the garment are fixed within the first few steps, after which the fine detail settles. The timing of when each axis settles, however, varies strongly between models. OOTDiffusion fills in the garment's detail much earlier than CatVTON and IDM-VTON. We found that the gap is largest for repeating patterns such as stripes, which CatVTON resolves particularly late. Looking at the trajectory rather than only the final image shows how each model uses its steps and could be used to determine in which part of the schedule a model could be improved or combined with another to obtain superior results.

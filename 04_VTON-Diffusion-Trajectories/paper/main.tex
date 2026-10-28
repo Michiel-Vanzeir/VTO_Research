@@ -1,0 +1,95 @@
+% =====================================================================
+%  VISAPP 2027 submission -- SCITEPRESS conference template
+%
+%  Format rules (from the VISAPP guidelines + template):
+%   * Regular paper: 10,000--50,000 characters excluding spaces, INCLUDING
+%     references, tables, figures and appendices. Accepted as Full Paper
+%     (12 pages) or Short Paper (8 pages) in the proceedings.
+%   * Double-blind: no author names, affiliations, acknowledgements or
+%     self-identifying links (e.g. GitHub) in the submitted PDF.
+%     Self-cite in the third person ("Smith et al. showed ..."), and keep
+%     self-citations <= 20% of the references. Don't post a preprint while
+%     the paper is under review.
+%   * Abstract 70--200 words. At least one keyword, titlecased, comma
+%     separated, ending with a period.
+%   * Section titles in ALL CAPS (\uppercase), subsections titlecased.
+%   * Table captions ABOVE the table, figure captions BELOW, every caption
+%     ends with a period. Write "Figure"/"Table" in full in the text.
+%   * Citations in APA (author, year) style: use \cite{} -- apalike does it.
+%   * Do NOT edit article.cls, apalike.*, SCITEPRESS.sty.
+%   * Add your own packages BEFORE \usepackage{SCITEPRESS}.
+%
+%  Compiler on Overleaf: pdfLaTeX (Menu -> Compiler).
+% =====================================================================
+
+\documentclass[a4paper,twoside]{article}
+
+\usepackage{epsfig}
+\usepackage{subcaption}
+\usepackage{calc}
+\usepackage{amssymb}
+\usepackage{amstext}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage[hidelinks]{hyperref}
+\usepackage{multicol}
+\usepackage{pslatex}
+\usepackage{apalike}
+\usepackage{algorithm2e}
+\usepackage[bottom]{footmisc}
+% --- own packages (must come before SCITEPRESS.sty) -------------------
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{xspace}
+\usepackage{SCITEPRESS}
+
+% --- writing helpers ---------------------------------------------------
+
+\newif\ifshowtodos \showtodostrue
+\DeclareRobustCommand{\todo}[1]{\ifshowtodos{\color{red}\textbf{[TODO: #1]}}\fi}
+\newif\ifblind \blindtrue
+
+
+\newcommand{\catvton}{CatVTON\xspace}
+\newcommand{\ootd}{OOTDiffusion\xspace}
+\newcommand{\idm}{IDM-VTON\xspace}
+\newcommand{\vitonhd}{VITON-HD\xspace}
+\newcommand{\axis}[1]{\textsf{#1}}  
+
+\begin{document}
+
+% Title rules: titlecased, no formulas/special characters, subtitle after a colon.
+\title{When Is the Garment Settled? \\ A Trajectory Analysis of Diffusion-Based Virtual Try-On}
+
+
+
+\author{\authorname{Anonymous Submission}
+\affiliation{}
+\email{}
+}
+
+
+\keywords{Virtual Try-On, Diffusion Models, Denoising Trajectory, Interpretability.}
+
+\abstract{\input{sections/00_abstract}}
+
+\onecolumn \maketitle \normalsize \setcounter{footnote}{0} \vfill
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_method}
+\input{sections/04_experimental_setup}
+\input{sections/05_results}
+\input{sections/06_discussion}
+\input{sections/07_conclusion}
+
+\input{sections/08_acknowledgements}
+\bibliographystyle{apalike}
+{\small
+\bibliography{references}}
+
+
+
+
+\end{document}

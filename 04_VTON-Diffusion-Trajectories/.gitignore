@@ -6,6 +6,7 @@
 .uv_cache/
 .uv_python/
 .tools/
+.torch_cache/
 data/
 repos/
 outputs/

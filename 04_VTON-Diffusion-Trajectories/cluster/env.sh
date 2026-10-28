@@ -9,6 +9,8 @@ export PROJECT_ROOT
 export HF_HOME="${HF_HOME:-$PROJECT_ROOT/.hf_cache}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$PROJECT_ROOT/.uv_cache}"
 export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-$PROJECT_ROOT/.uv_python}"
+# Inception (torch-fidelity) and AlexNet (lpips) weights for the benchmark metrics
+export TORCH_HOME="${TORCH_HOME:-$PROJECT_ROOT/.torch_cache}"
 export PATH="$PROJECT_ROOT/.tools/bin:$PATH"
 
 # One CUDA build of torch for all three envs. cu124 wheels need an NVIDIA

@@ -1,0 +1,20 @@
+# Final node of the benchmark DAG: FID, KID, SSIM and LPIPS of every
+# complete outputs/_benchmark/<model>/<sampler>/<setting>/ folder
+# (scripts/benchmark_metrics.py). The Inception and AlexNet weights it needs
+# are fetched into $TORCH_HOME by submit_benchmark.sh on the submit node.
+universe   = vanilla
+executable = benchmark_metrics.sh
+arguments  = $(metrics_args)
+should_transfer_files = NO
+
+request_gpus   = 1
+request_cpus   = 8
+request_memory = 16GB
+request_disk   = 10GB
+requirements = ((TARGET.CUDAGlobalMemoryMb >= 7500) || (TARGET.GPUs_GlobalMemoryMb >= 7500))
++RequestWalltime = 14400
+
+output = logs/$(logname).out
+error  = logs/$(logname).err
+log    = logs/$(logname).log
+queue

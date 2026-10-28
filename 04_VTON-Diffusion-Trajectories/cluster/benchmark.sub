@@ -1,0 +1,29 @@
+# One shard of the benchmark generation (final images only). Not submitted
+# directly: submit_benchmark.sh generates a DAG that instantiates this once
+# per (model, sampler, setting, shard), plus a final metrics node
+# (benchmark_metrics.sub). Same GPU/RAM requirements as vton.sub.
+universe   = vanilla
+executable = benchmark_job.sh
+arguments  = $(model) $(sampler) $(setting) $(shard) $(nshards)
+environment = "LIMIT=$(limit)"
+
+should_transfer_files = NO
+
+request_gpus   = 1
+request_cpus   = 4
+request_memory = $(mem)
+request_disk   = 10GB
+
+BadHosts = psi-test2.esat.kuleuven.be
+# gpuname (optional, GPU_NAME in submit_benchmark.sh): only run on that card,
+# e.g. "NVIDIA GeForce RTX 3090 Ti" for timings that match the paper
+requirements = ((TARGET.CUDAGlobalMemoryMb >= $(gpumem)) || (TARGET.GPUs_GlobalMemoryMb >= $(gpumem))) \
+               && !stringListMember(TARGET.Machine, "$(BadHosts)") \
+               && ("$(gpuname)" == "" || TARGET.GPUs_DeviceName =?= "$(gpuname)")
+
++RequestWalltime = $(walltime)
+
+output = logs/$(logname).out
+error  = logs/$(logname).err
+log    = logs/$(logname).log
+queue

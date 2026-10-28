@@ -112,6 +112,9 @@ class CaptureStep:
         # the CLASS method, not scheduler.step: in fork mode the pipeline runs
         # many times and an instance attribute would be the previous wrapper
         self.orig_step = type(scheduler).step.__get__(scheduler, type(scheduler))
+        # DDPMScheduler.step (IDM-VTON's default sampler, used by benchmark_generate.py)
+        # takes no eta / variance_noise, so only forward what the real step accepts
+        self.step_params = set(inspect.signature(self.orig_step).parameters)
         self.vae = vae
         self.capture = capture
         self.fork_step, self.fork_gen = fork_step, fork_gen
@@ -129,9 +132,10 @@ class CaptureStep:
         i = len(self.timesteps)
         if self.fork_gen is not None and i >= self.fork_step:
             generator = self.fork_gen
-        out = self.orig_step(model_output, timestep, sample, eta=eta,
-                             use_clipped_model_output=use_clipped_model_output,
-                             generator=generator, variance_noise=variance_noise, return_dict=True)
+        kwargs = dict(eta=eta, use_clipped_model_output=use_clipped_model_output,
+                      generator=generator, variance_noise=variance_noise)
+        out = self.orig_step(model_output, timestep, sample, return_dict=True,
+                             **{k: v for k, v in kwargs.items() if k in self.step_params})
         self.timesteps.append(int(timestep))
         self.final_latents = out.prev_sample
         self.pbar.update()

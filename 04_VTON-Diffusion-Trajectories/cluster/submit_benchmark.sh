@@ -13,19 +13,19 @@
 #
 # Configs: CatVTON with DDIM 50 (its default and the trajectory sampler);
 # OOTDiffusion and IDM-VTON with DDIM 50 (trajectory sampler) and with their
-# own defaults, UniPC 30 and DDPM 30. Images that already exist are skipped,
+# own defaults, UniPC 20 and DDPM 30. Images that already exist are skipped,
 # so resubmitting after a failure only does what's missing.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "$PROJECT_ROOT/cluster"
 
-CONFIGS="${CONFIGS:-catvton:ddim50 ootd:ddim50 ootd:unipc30 idm:ddim50 idm:ddpm30}"
+CONFIGS="${CONFIGS:-catvton:ddim50 ootd:ddim50 ootd:unipc20 idm:ddim50 idm:ddpm30}"
 SETTINGS="${SETTINGS:-unpaired paired}"
 SHARDS="${SHARDS:-4}"
 LIMIT="${LIMIT:-}"
 GPU_NAME="${GPU_NAME:-}"
 RETRIES=2
-declare -A GPUMEM=([catvton]=7500 [ootd]=7500 [idm]=23000)
+declare -A GPUMEM=([catvton]=11000 [ootd]=11000 [idm]=23000)  # >= 11 GB also keeps the slow 8 GB cards out
 declare -A MEM=([catvton]=16GB [ootd]=24GB [idm]=40GB)
 WALLTIME=28800  # 8 h; at 4 shards the slowest job (IDM-VTON, DDIM 50: 508 images x 20 s) is ~3 h on a 3090 Ti
 

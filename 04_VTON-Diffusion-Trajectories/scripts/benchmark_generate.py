@@ -19,10 +19,10 @@ Settings:
 Samplers (--sampler, <name><steps>):
   ddim50    DDIM, eta = 1, 50 steps: the trajectory analysis sampler and
             CatVTON's own default
-  unipc30   OOTDiffusion's default scheduler (UniPC, from the checkpoint's
+  unipc20   OOTDiffusion's default scheduler (UniPC, from the checkpoint's
             scheduler config, as in repos/OOTDiffusion/ootd/inference_ootd_hd.py)
   ddpm30    IDM-VTON's default scheduler (DDPM, as in repos/IDM-VTON/inference.py)
-The step count is part of the name, so e.g. unipc20 also works.
+The step count is part of the name, so e.g. unipc30 also works.
 
 Output: outputs/_benchmark/<model>/<sampler>/<setting>/<person>__<cloth>.png
 at the model's native resolution, plus config.json and timings.csv (seconds
@@ -32,7 +32,7 @@ splitting one setting over several jobs; --limit N runs only the first N
 pairs (for testing).
 
 Usage:
-    python scripts/benchmark_generate.py --model ootd --sampler unipc30 --setting paired
+    python scripts/benchmark_generate.py --model ootd --sampler unipc20 --setting paired
 """
 import argparse
 import json
@@ -158,7 +158,7 @@ RUNNERS = {"catvton": catvton_runner, "ootd": ootd_runner, "idm": idm_runner}
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True, choices=sorted(RUNNERS))
-    p.add_argument("--sampler", required=True, help="ddim50, unipc30 (ootd) or ddpm30 (idm)")
+    p.add_argument("--sampler", required=True, help="ddim50, unipc20 (ootd) or ddpm30 (idm)")
     p.add_argument("--setting", required=True, choices=["unpaired", "paired"])
     p.add_argument("--shard", default="0/1", help="K/N: run pairs K, K+N, K+2N, ...")
     p.add_argument("--limit", type=int, default=None, help="only the first N pairs (testing)")

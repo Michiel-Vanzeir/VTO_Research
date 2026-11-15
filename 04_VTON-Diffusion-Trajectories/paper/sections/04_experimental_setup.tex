@@ -4,7 +4,7 @@
 \subsection{Models}
 We use the public VITON-HD checkpoints for all three models, given in Table~\ref{tab:models}. Every run uses the same seed (42), DDIM sampling with $\eta = 1$, 50 steps and the guidance scale recommended by the authors. Each model receives its inputs according to its official inference code; CatVTON its own agnostic mask, OOTDiffusion a mask derived from the human parsing and keypoints provided by VITON-HD and IDM-VTON the VITON-HD agnostic mask, a DensePose~\cite{guler2018densepose} map and a short garment caption.
 \\ \\
-For reference, Table~\ref{tab:benchmark} gives the standard scores of the final images of each model on the full \vitonhd test split, both with the DDIM sampler of the trajectory analysis and with the default sampler of each model. In the unpaired setting, every person is paired with the garment given by the standard test pairs (2,032 pairs) and we report FID~\cite{heusel2017fid} and KID~\cite{binkowski2018kid}. In the paired setting, every person wears their own garment, so the test photo serves as the ground truth and we also report SSIM~\cite{wang2004ssim} and LPIPS~\cite{zhang2018lpips} with AlexNet features. FID and KID are computed against the 2,032 person images of the test split. All images are resized to $384 \times 512$ before scoring and every score is computed with the same implementation for all three models (torch-fidelity for FID and KID).
+For context, Table~\ref{tab:benchmark} gives the standard scores of the three models on the full \vitonhd test split as reported by \catvton~\cite{chong2025catvton}, which evaluates all three under one protocol. In the unpaired setting, every person is paired with the garment given by the standard test pairs and only FID~\cite{heusel2017fid} and KID~\cite{binkowski2018kid} apply. In the paired setting, every person wears their own garment, so the test photo serves as the ground truth for SSIM~\cite{wang2004ssim} and LPIPS~\cite{zhang2018lpips} as well. These scores describe the models with their original inference settings. They were not computed from our DDIM runs.
 \\ \\
 \begin{table}[h]
 \caption{Models and sampling settings of the trajectory analysis. All models are sampled with DDIM, $\eta = 1$, 50 steps; CFG corresponds to the classifier-free guidance scale.}
@@ -24,35 +24,28 @@ For reference, Table~\ref{tab:benchmark} gives the standard scores of the final 
 \end{tabular}}
 \end{table}
 
-\begin{table*}[t]
-\caption{Standard scores of the final images on the full \vitonhd test split at $384 \times 512$, with seed 42 and the guidance scales of Table~\ref{tab:models}. KID is given $\times 10^3$ (mean $\pm$ std over 100 subsets of 1,000 images). LPIPS uses AlexNet features. DDIM 50 is the sampler of the trajectory analysis ($\eta = 1$).}
+\begin{table}[h]
+\caption{Standard scores on the full \vitonhd test split as reported by \catvton~\cite{chong2025catvton} (Table 1 there; \catvton is its mask-based version, the checkpoint used in this paper). KID as reported. These scores come from the original inference settings of each model, not from our DDIM runs.}
 \label{tab:benchmark}
 \centering
 \small
-\begin{tabular}{llcccccc}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccc}
   \toprule
-  & & \multicolumn{2}{c}{Unpaired} & \multicolumn{4}{c}{Paired} \\
-  \cmidrule(lr){3-4} \cmidrule(lr){5-8}
-  Model & Sampler & FID$\downarrow$ & KID$\downarrow$ & FID$\downarrow$ & KID$\downarrow$ & SSIM$\uparrow$ & LPIPS$\downarrow$ \\
+  & \multicolumn{2}{c}{Unpaired} & \multicolumn{4}{c}{Paired} \\
+  \cmidrule(lr){2-3} \cmidrule(lr){4-7}
+  Model & FID$\downarrow$ & KID$\downarrow$ & FID$\downarrow$ & KID$\downarrow$ & SSIM$\uparrow$ & LPIPS$\downarrow$ \\
   \midrule
-  CatVTON & DDIM 50 & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
-  & reported$^\dagger$ & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
-  \midrule
-  OOTDiffusion & DDIM 50 & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
-  & UniPC 20 & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
-  & reported$^\dagger$ & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
-  \midrule
-  IDM-VTON & DDIM 50 & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
-  & DDPM 30 & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX $\pm$ XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
-  & reported$^\dagger$ & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} & \textcolor{red}{XX} \\
+  CatVTON & 9.015 & 1.091 & 5.425 & 0.411 & 0.8704 & 0.0565 \\
+  OOTDiffusion & 12.408 & 4.689 & 9.305 & 4.086 & 0.8187 & 0.0876 \\
+  IDM-VTON & 9.842 & 1.123 & 5.762 & 0.732 & 0.8499 & 0.0603 \\
   \bottomrule
-\end{tabular}
-\\[2pt]
-\parbox{0.83\textwidth}{\footnotesize $^\dagger$Values reported in the original paper. Their evaluation protocols differ from ours (e.g.\ resolution, sampler, seed and metric implementation), so these rows are not directly comparable.}
-\end{table*}
+\end{tabular}}
+\end{table}
 
 \subsection{Data}
-We evaluate on the \vitonhd~\cite{choi2021vitonhd} test split using the standard unpaired protocol, where each person is paired with a garment they are not wearing in the original image. To determine whether the denoising dynamics depend on the type of garment, they are grouped into eight categories that each highlight one visual property: \emph{solid} (uniform fabric, spread over different colours), \emph{lettering} (large text or logos), \emph{graphic} (one illustration), \emph{stripe}, \emph{floral}, \emph{dot}, \emph{check} (plaid and gingham) and \emph{structural} (solid fabric with buttons, pockets, zips or a peplum). Initially, we tried selecting the garments using the garment tags released with IDM-VTON, but we found that these were too noisy for this purpose; the ``dot'' tag, for example, occasionally returned plain tops. Therefore, we pre-filtered with the tags and chose the final garments by hand, six per category, for a total of 48 pairs. The image IDs of all pairs will be released with the code. We excluded lace, mesh, sequins and see-through fabrics, since they could have confounded the colour and texture measurements. Our usage of three models results in 144 trajectories and 7,200 decoded frames.
+We evaluate on the \vitonhd~\cite{choi2021vitonhd} test split using the standard unpaired protocol, where each person is paired with a garment they are not wearing in the original image. To determine whether the denoising dynamics depend on the type of garment, they are grouped into eight categories that each highlight one visual property: \emph{solid} (uniform fabric, spread over different colours), \emph{lettering} (large text or logos), \emph{graphic} (one illustration), \emph{stripe}, \emph{floral}, \emph{dot}, \emph{check} (plaid and gingham) and \emph{structural} (solid fabric with buttons, pockets, zips or a peplum). Initially, we tried selecting the garments using the garment tags released with IDM-VTON, but we found that these were too noisy for this purpose; the ``dot'' tag, for example, occasionally returned plain tops. Therefore, we pre-filtered with the tags and chose the final garments by hand, six per category, for a total of 48 pairs. The image IDs of all pairs are listed in the appendix (Table~\ref{tab:pairs}). We excluded lace, mesh, sequins and see-through fabrics, since they could have confounded the colour and texture measurements. Our usage of three models results in 144 trajectories and 7,200 decoded frames.
 
 \subsection{Implementation Details}
-All runs were performed on NVIDIA RTX 3090 Ti (24 GB) GPUs. Differences between models are tested with a paired Wilcoxon signed-rank test~\cite{wilcoxon1945} over the 48 pairs. The band indices are tested against zero with the same test. Differences between the eight garment categories are tested with a Kruskal–Wallis test~\cite{kruskal1952use}. No correction for multiple comparisons is applied, so results with $p \geq 0.01$ should be read as tendencies. The code will be released upon publication, together with the list of pairs.
+All runs were performed on a shared GPU cluster, mostly on NVIDIA A100 and L40S GPUs. Differences between models are tested with a paired Wilcoxon signed-rank test~\cite{wilcoxon1945} over the 48 pairs. The band indices are tested against zero with the same test. Differences between the eight garment categories are tested with a Kruskal–Wallis test~\cite{kruskal1952use}. No correction for multiple comparisons is applied, so results with $p \geq 0.01$ should be read as tendencies. The code will be released upon publication.

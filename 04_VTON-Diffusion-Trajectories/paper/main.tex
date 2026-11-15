@@ -46,7 +46,7 @@
 
 % --- writing helpers ---------------------------------------------------
 
-\newif\ifshowtodos \showtodostrue
+\newif\ifshowtodos \showtodosfalse
 \DeclareRobustCommand{\todo}[1]{\ifshowtodos{\color{red}\textbf{[TODO: #1]}}\fi}
 \newif\ifblind \blindtrue
 
@@ -88,6 +88,8 @@
 \bibliographystyle{apalike}
 {\small
 \bibliography{references}}
+
+\input{sections/09_appendix}
 
 
 

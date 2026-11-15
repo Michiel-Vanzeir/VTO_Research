@@ -11,7 +11,10 @@ request_gpus   = 1
 request_cpus   = 8
 request_memory = 16GB
 request_disk   = 10GB
-requirements = ((TARGET.CUDAGlobalMemoryMb >= 7500) || (TARGET.GPUs_GlobalMemoryMb >= 7500))
+# Capability < 10 and no garnet: see benchmark.sub
+requirements = ((TARGET.CUDAGlobalMemoryMb >= 7500) || (TARGET.GPUs_GlobalMemoryMb >= 7500)) \
+               && (TARGET.GPUs_Capability =?= undefined || TARGET.GPUs_Capability < 10.0) \
+               && TARGET.Machine =!= "garnet.esat.kuleuven.be"
 +RequestWalltime = 14400
 
 output = logs/$(logname).out

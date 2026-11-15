@@ -14,10 +14,14 @@ request_cpus   = 4
 request_memory = $(mem)
 request_disk   = 10GB
 
-BadHosts = psi-test2.esat.kuleuven.be
+# garnet cannot open the log directory (jobs go on hold)
+BadHosts = psi-test2.esat.kuleuven.be,garnet.esat.kuleuven.be
 # gpuname (optional, GPU_NAME in submit_benchmark.sh): only run on that card,
-# e.g. "NVIDIA GeForce RTX 3090 Ti" for timings that match the paper
+# e.g. "NVIDIA GeForce RTX 3090 Ti" for timings that match the paper.
+# Capability < 10: the venvs ship torch 2.6+cu124 (kernels up to sm_90), so
+# Blackwell cards (fuji, RTX 5060 Ti, 12.0) fail with "no kernel image".
 requirements = ((TARGET.CUDAGlobalMemoryMb >= $(gpumem)) || (TARGET.GPUs_GlobalMemoryMb >= $(gpumem))) \
+               && (TARGET.GPUs_Capability =?= undefined || TARGET.GPUs_Capability < 10.0) \
                && !stringListMember(TARGET.Machine, "$(BadHosts)") \
                && ("$(gpuname)" == "" || TARGET.GPUs_DeviceName =?= "$(gpuname)")
 
